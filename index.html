@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>Home Meals</title>
-<!-- v2.9 -->
+<!-- v3.0 -->
 <style>
   *{box-sizing:border-box}
   body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;background:#faf6ef;color:#3a322a;line-height:1.5;margin:0;padding:0 0 48px}
@@ -76,6 +76,8 @@
   .stars button.lit{color:#e8a33d}
   .avgchip{display:inline-block;background:#fdf3e3;color:#a4762a;border-radius:999px;padding:2px 10px;font-size:12px;margin:6px 6px 0 0}
   .commentform input{display:block;width:100%;font:inherit;font-size:15px;padding:10px 12px;border:1px solid #eadfd2;border-radius:10px;margin:8px 0;background:#fff}
+  .syncstatus{text-align:center;color:#8a7d6d;font-size:12px;margin:20px 0 4px}
+  .syncstatus.ok{color:#5d8a5a}
   .toast{position:fixed;left:50%;bottom:24px;transform:translateX(-50%);background:#3a322a;color:#faf6ef;padding:10px 18px;border-radius:999px;font-size:14px;opacity:0;transition:opacity .25s;pointer-events:none;white-space:nowrap}
   .toast.show{opacity:1}
 </style>
@@ -141,7 +143,7 @@ function loadState(){
   try{var s=JSON.parse(localStorage.getItem(LS_KEY));if(s&&s.recipes&&s.checked)return s;}catch(e){}
   return {recipes:[],checked:{}};
 }
-function saveState(s){localStorage.setItem(LS_KEY,JSON.stringify(s));}
+function saveState(s){localStorage.setItem(LS_KEY,JSON.stringify(s));cloudPush();}
 var state=loadState();
 
 var LS_COOK='hm-cooking-v1';
@@ -167,7 +169,7 @@ function loadComments(){
   try{var s=JSON.parse(localStorage.getItem(LS_COMMENTS));if(s&&typeof s==='object')return s;}catch(e){}
   return {};
 }
-function saveComments(){localStorage.setItem(LS_COMMENTS,JSON.stringify(commentState));}
+function saveComments(){localStorage.setItem(LS_COMMENTS,JSON.stringify(commentState));cloudPush();}
 var commentState=loadComments();
 
 var LS_RATINGS='hm-ratings-v1';
@@ -175,7 +177,7 @@ function loadRatings(){
   try{var s=JSON.parse(localStorage.getItem(LS_RATINGS));if(s&&typeof s==='object')return s;}catch(e){}
   return {};
 }
-function saveRatings(){localStorage.setItem(LS_RATINGS,JSON.stringify(ratingsState));}
+function saveRatings(){localStorage.setItem(LS_RATINGS,JSON.stringify(ratingsState));cloudPush();}
 var ratingsState=loadRatings();
 function getAvg(rid){
   var r=ratingsState[rid];if(!r)return null;
@@ -349,7 +351,7 @@ function sendComment(rid,idx){
 // ===== Custom shopping items =====
 var LS_CUSTOM='hm-custom-v1';
 function loadCustom(){try{var s=JSON.parse(localStorage.getItem(LS_CUSTOM));if(s&&s.length)return s;}catch(e){}return [];}
-function saveCustom(){localStorage.setItem(LS_CUSTOM,JSON.stringify(customState));}
+function saveCustom(){localStorage.setItem(LS_CUSTOM,JSON.stringify(customState));cloudPush();}
 var customState=loadCustom();
 function addCustomItem(text){
   text=(text||'').replace(/\s+/g,' ').trim();
@@ -420,6 +422,7 @@ function viewList(){
       (getAvg(r.id)?'<div><span class="avgchip">&#9733; '+getAvg(r.id)+'</span></div>':'')+
       '</div></a>';
   });
+  h+='<p class="syncstatus" id="syncstatus"></p>';
   return h;
 }
 function viewRecipe(id){
@@ -536,6 +539,57 @@ function viewShopping(){
   return h;
 }
 
+// ===== Household sync (Supabase) =====
+var SUPA_URL='https://jyqnxhpzbgifixkhluvj.supabase.co';
+var SUPA_KEY='sb_publishable_y3eGmE7RpMFvFLxu3Syh_w_-AlBvJiB';
+var HOUSEHOLD=(location.search.match(/[?&]h=([a-z0-9-]+)/i)||[])[1]||null;
+if(!HOUSEHOLD){try{HOUSEHOLD=localStorage.getItem('hm-household');}catch(e){}}
+if(HOUSEHOLD){try{localStorage.setItem('hm-household',HOUSEHOLD);}catch(e){}}
+var lastSync=0,pushTimer=null,syncOnline=false;
+function cloudHeaders(){return {'apikey':SUPA_KEY,'Authorization':'Bearer '+SUPA_KEY,'Content-Type':'application/json'};}
+function setSyncUI(){
+  var el=document.getElementById('syncstatus');if(!el)return;
+  if(!HOUSEHOLD){el.textContent='';el.className='syncstatus';return;}
+  el.textContent=syncOnline?('Synced across the family - '+HOUSEHOLD):'Sync offline - changes stay on this phone';
+  el.className='syncstatus'+(syncOnline?' ok':'');
+}
+function cloudPush(){
+  if(!HOUSEHOLD||cloudPush.off)return;
+  clearTimeout(pushTimer);
+  pushTimer=setTimeout(function(){
+    var blob={ratings:ratingsState,comments:commentState,shop:state,custom:customState};
+    var now=new Date().toISOString();
+    fetch(SUPA_URL+'/rest/v1/household_state',{method:'POST',headers:Object.assign(cloudHeaders(),{'Prefer':'resolution=merge-duplicates'}),body:JSON.stringify({slug:HOUSEHOLD,state:blob,updated_at:now})})
+    .then(function(r){if(r.ok){lastSync=Date.parse(now);syncOnline=true;}else{syncOnline=false;}setSyncUI();})
+    .catch(function(){syncOnline=false;setSyncUI();});
+  },400);
+}
+function cloudPull(seedIfEmpty){
+  if(!HOUSEHOLD)return;
+  fetch(SUPA_URL+'/rest/v1/household_state?slug=eq.'+encodeURIComponent(HOUSEHOLD)+'&select=state,updated_at',{headers:cloudHeaders()})
+  .then(function(r){return r.ok?r.json():[];})
+  .then(function(rows){
+    syncOnline=true;
+    if(!rows||!rows.length){if(seedIfEmpty)cloudPush();setSyncUI();return;}
+    var row=rows[0];var t=Date.parse(row.updated_at)||0;
+    if(t>lastSync){
+      lastSync=t;var b=row.state||{};
+      cloudPush.off=true;
+      try{
+        if(b.ratings){ratingsState=b.ratings;localStorage.setItem(LS_RATINGS,JSON.stringify(ratingsState));}
+        if(b.comments){commentState=b.comments;localStorage.setItem(LS_COMMENTS,JSON.stringify(commentState));}
+        if(b.shop){state=b.shop;localStorage.setItem(LS_KEY,JSON.stringify(state));updateCartBadge();}
+        if(b.custom){customState=b.custom;localStorage.setItem(LS_CUSTOM,JSON.stringify(customState));}
+      }finally{cloudPush.off=false;}
+      render(true);
+    }
+    setSyncUI();
+  })
+  .catch(function(){syncOnline=false;setSyncUI();});
+}
+setInterval(function(){if(!document.hidden)cloudPull(false);},4000);
+document.addEventListener('visibilitychange',function(){if(!document.hidden)cloudPull(false);});
+
 // ===== Router =====
 function render(keepScroll){
   var y=keepScroll?(window.scrollY||window.pageYOffset||0):0;
@@ -553,6 +607,8 @@ function render(keepScroll){
 window.addEventListener('hashchange',function(){render();window.scrollTo(0,0);});
 updateCartBadge();
 render();
+cloudPull(true);
+setSyncUI();
 </script>
 </body>
 </html>
