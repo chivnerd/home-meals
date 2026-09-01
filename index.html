@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>Home Meals</title>
-<!-- v3.5 -->
+<!-- v3.6 -->
 <style>
   *{box-sizing:border-box}
   body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;background:#faf6ef;color:#3a322a;line-height:1.5;margin:0;padding:0 0 48px}
@@ -365,7 +365,19 @@ function sendComment(rid,idx){
 
 // ===== Custom shopping items =====
 var LS_CUSTOM='hm-custom-v1';
-function loadCustom(){try{var s=JSON.parse(localStorage.getItem(LS_CUSTOM));if(s&&s.length)return s;}catch(e){}return [];}
+function loadCustom(){
+  try{
+    var s=JSON.parse(localStorage.getItem(LS_CUSTOM));
+    if(s&&s.length){
+      return s.filter(function(c){
+        if(c.name!=null)return true;
+        var t=c.text||'';
+        return !(t.length>=50&&t.split(/\s+/).length>=6);
+      });
+    }
+  }catch(e){}
+  return [];
+}
 function saveCustom(){localStorage.setItem(LS_CUSTOM,JSON.stringify(customState));cloudPush();}
 var customState=loadCustom();
 function addCustomItem(text){
@@ -378,9 +390,41 @@ function addCustomFromInput(){
   var el=document.getElementById('custom-add');if(!el)return;
   if(addCustomItem(el.value)){el.value='';render(true);toast('Added to list');}
 }
+var MATCH_STOP={brown:1,ground:1,fresh:1,large:1,small:1,raw:1,organic:1,light:1,dark:1,sweet:1,whole:1,thick:1,thin:1,extra:1,virgin:1};
+var STEP_VERBS={salt:1,add:1,cook:1,drop:1,brown:1,toss:1,finish:1,push:1,drain:1,reserve:1,heat:1,steam:1,bring:1,reduce:1,simmer:1,stir:1,mix:1,cut:1,slice:1,chop:1,mince:1,grate:1,grated:1,peel:1,wash:1,preheat:1,boil:1,fry:1,saute:1,sear:1,bake:1,serve:1,season:1,taste:1,adjust:1,pour:1,whisk:1,combine:1,scrape:1,loosen:1,break:1,remove:1,transfer:1,cover:1,flip:1,turn:1,set:1,let:1};
+function stepListItem(r,idx){
+  var st=(r.steps[idx]||'').toLowerCase();
+  var a=getAdj(r.id),scale=a.scale||1;
+  for(var i=0;i<r.ingredients.length;i++){
+    var ing=r.ingredients[i];
+    var name=ing.text.split(',')[0].toLowerCase();
+    var words=name.split(/[^a-z]+/).filter(function(w){return w.length>=4&&!MATCH_STOP[w];});
+    var hit=words.some(function(w){
+      var stem=w.replace(/s$/,'');
+      return st.indexOf(w)>=0||(stem.length>=4&&st.indexOf(stem)>=0);
+    });
+    if(hit){
+      return {qty:(ing.qty==null?null:Math.round(ing.qty*scale*100)/100),unit:ing.unit||'',name:ing.text.split(',')[0].trim(),desc:(ing.text.indexOf(',')>=0?ing.text.slice(ing.text.indexOf(',')+1).trim():'')};
+    }
+  }
+  var ws=(r.steps[idx]||'').replace(/[^a-z0-9 ]/gi,' ').replace(/\s+/g,' ').trim().split(' ');
+  var j=0;
+  while(j<ws.length&&(STEP_VERBS[ws[j].toLowerCase()]||/^(the|a|an|some|your)$/.test(ws[j].toLowerCase())))j++;
+  var out=[];
+  while(j<ws.length&&out.length<3){
+    var w=ws[j].toLowerCase();
+    if(/^(the|a|an|some|and|or|of|to|in|on|with|for|into|as|at|then|until|if|when|before|after|from)$/.test(w))break;
+    if(out.length>0&&(/ly$/.test(w)||STEP_VERBS[w]))break;
+    out.push(ws[j]);j++;
+  }
+  var phrase=out.join(' ')||(r.steps[idx]||'').split(/[.,;]/)[0].split(/\s+/).slice(0,3).join(' ');
+  return {qty:null,unit:'',name:phrase.charAt(0).toUpperCase()+phrase.slice(1),desc:''};
+}
 function addStepToList(rid,idx){
   var r=getRecipe(rid);if(!r)return;
-  if(addCustomItem(r.steps[idx])){render(true);toast('Step added to shopping list');}
+  var item=stepListItem(r,idx);
+  customState.push({id:'c'+Date.now()+'_'+Math.floor(Math.random()*100000),text:(item.qty!=null?formatQty(item.qty)+(item.unit?' '+item.unit:'')+' ':'')+item.name,qty:item.qty,unit:item.unit,name:item.name,done:false});
+  saveCustom();render(true);toast('Added: '+item.name);
 }
 function toggleCustom(id){
   customState.forEach(function(c){if(c.id===id)c.done=!c.done;});
@@ -464,7 +508,9 @@ function buildShopRows(){
     });
   });
   customState.forEach(function(c){
-    var p=parseIngText(c.text);
+    var p;
+    if(c.name!=null||c.qty!=null){p={qty:(c.qty==null?null:c.qty),unit:c.unit||'',name:c.name||c.text};}
+    else{p=parseIngText(c.text);}
     var key=normName(p.name);if(!key)return;
     var row=rowFor(key,p.name.split(',')[0].trim());
     row.customIds.push(c.id);
