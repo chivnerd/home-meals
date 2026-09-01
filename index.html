@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>Home Meals</title>
-<!-- v2.7 -->
+<!-- v2.8 -->
 <style>
   *{box-sizing:border-box}
   body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;background:#faf6ef;color:#3a322a;line-height:1.5;margin:0;padding:0 0 48px}
@@ -278,12 +278,6 @@ function copyRecipe(id){
   copyText(recipeText(r),'Recipe copied');
 }
 
-// ===== Import from blog =====
-function importFromBlog(){
-  if(isMobile()){window.location.href=smsHref(IMPORT_NUMBER,IMPORT_PREFIX);}
-  else{copyText(IMPORT_PREFIX,'Text it to +1 (650) 444-7686 - intro copied');}
-}
-
 // ===== Adjustments (scaler + edits) =====
 function setScale(rid,scale){
   getAdj(rid).scale=scale;saveAdj();render(true);
@@ -414,7 +408,10 @@ function resetSteps(rid){
 // ===== Views =====
 function viewList(){
   var h='<h1>Home Meals</h1><p class="sub">The family recipe book. '+RECIPES.length+' recipe'+(RECIPES.length===1?'':'s')+' and counting.</p>';
-  h+='<div class="importcard"><button class="btn" onclick="importFromBlog()">Import from blog</button><p class="helper">Text a blog link - the recipe lands here, minus the life story.</p></div>';
+  h+='<div class="importcard">'+
+    '<a class="btn" href="'+smsHref(IMPORT_NUMBER,IMPORT_PREFIX)+'">Text it</a>'+
+    '<a class="btn" style="margin-top:10px" href="mailto:inboxkznzjv@agent.instinct.co?subject=Recipe%20import&body=Paste%20the%20blog%20link%20here%3A%0A">Email it</a>'+
+    '<p class="helper">Send a blog link - the recipe lands here, minus the life story.</p></div>';
   RECIPES.forEach(function(r){
     h+='<a class="cardlink" href="#/recipe/'+r.id+'"><div class="card">'+
       '<h2>'+esc(r.name)+'</h2>'+
