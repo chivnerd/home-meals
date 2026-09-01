@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>Home Meals</title>
-<!-- v3.4 -->
+<!-- v3.5 -->
 <style>
   *{box-sizing:border-box}
   body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;background:#faf6ef;color:#3a322a;line-height:1.5;margin:0;padding:0 0 48px}
@@ -140,7 +140,22 @@ var IMPORT_PREFIX='Recipe import (extract the recipe from this link and email it
 // ===== State =====
 var LS_KEY='hm-shopping-v1';
 function loadState(){
-  try{var s=JSON.parse(localStorage.getItem(LS_KEY));if(s&&s.recipes&&s.checked)return s;}catch(e){}
+  try{
+    var s=JSON.parse(localStorage.getItem(LS_KEY));
+    if(s&&s.recipes&&s.checked){
+      var migrated={},dirty=false;
+      Object.keys(s.checked).forEach(function(k){
+        var m=k.match(/^([a-z0-9-]+):(\d+)$/);
+        if(m){
+          var r=getRecipe(m[1]);
+          if(r&&r.ingredients[+m[2]]){migrated['row:'+normName(r.ingredients[+m[2]].text)]=true;dirty=true;return;}
+        }
+        migrated[k]=s.checked[k];
+      });
+      if(dirty){s.checked=migrated;localStorage.setItem(LS_KEY,JSON.stringify(s));}
+      return s;
+    }
+  }catch(e){}
   return {recipes:[],checked:{}};
 }
 function saveState(s){localStorage.setItem(LS_KEY,JSON.stringify(s));cloudPush();}
@@ -377,6 +392,90 @@ function delCustom(id){
 }
 function clearCustom(){customState=[];saveCustom();render(true);}
 
+// ===== Shopping list aggregation =====
+var SHOP_UNITS={lb:1,lbs:1,box:1,boxes:1,crown:1,crowns:1,clove:1,cloves:1,tbsp:1,tsp:1,cup:1,cups:1,oz:1,can:1,cans:1,bunch:1,bunches:1,head:1,heads:1,stalk:1,stalks:1,bag:1,bags:1,pack:1,packs:1,slice:1,slices:1,g:1,kg:1,ml:1,l:1,pinch:1,dash:1,egg:1,eggs:1};
+function parseQtyStr(s){
+  var m=s.match(/^(\d+)\s+(\d)\/(\d)$/);if(m)return +m[1]+(+m[2])/(+m[3]);
+  m=s.match(/^(\d+)\/(\d)$/);if(m)return (+m[1])/(+m[2]);
+  var f=parseFloat(s);return isNaN(f)?null:f;
+}
+function parseIngText(text){
+  text=(text||'').replace(/\s+/g,' ').trim();
+  var m=text.match(/^((?:\d+\s+)?\d+(?:\.\d+)?(?:\/\d+)?)\s+(.+)$/);
+  if(m){
+    var q=parseQtyStr(m[1]);
+    if(q!=null){
+      var rest=m[2],sp=rest.indexOf(' ');
+      if(sp>0){
+        var w=rest.slice(0,sp).toLowerCase().replace(/[.,]$/,'');
+        if(SHOP_UNITS[w])return {qty:q,unit:w,name:rest.slice(sp+1)};
+      }
+      return {qty:q,unit:'',name:rest};
+    }
+  }
+  return {qty:null,unit:'',name:text};
+}
+function normName(n){
+  n=(n||'').toLowerCase().split(',')[0];
+  return n.replace(/[^a-z0-9 ]/g,'').replace(/\s+/g,' ').trim();
+}
+var ABBR_UNITS={tbsp:1,tsp:1,oz:1,g:1,kg:1,ml:1,l:1,lb:1};
+function unitKey(u){
+  u=(u||'').toLowerCase();
+  if(ABBR_UNITS[u])return u;
+  if(/(x|ch|sh)es$/.test(u))return u.slice(0,-2);
+  return u.replace(/s$/,'');
+}
+function pluralUnit(u,q){
+  if(!u)return '';
+  if(ABBR_UNITS[u])return u;
+  if(q===1)return unitKey(u);
+  if(/s$/.test(u))return u;
+  if(/(x|ch|sh)$/.test(u))return u+'es';
+  return u+'s';
+}
+function buildShopRows(){
+  var rows={},order=[];
+  function rowFor(key,display){
+    if(!rows[key]){rows[key]={key:key,name:display||key,parts:[],desc:'',customIds:[],fromRecipe:false,optional:false};order.push(key);}
+    return rows[key];
+  }
+  function addPart(row,p){
+    if(p.qty==null)return;
+    var uk=unitKey(p.unit),found=null;
+    row.parts.forEach(function(pt){if(unitKey(pt.unit)===uk)found=pt;});
+    if(found){found.qty=Math.round((found.qty+p.qty)*100)/100;}
+    else{row.parts.push({qty:p.qty,unit:p.unit});}
+  }
+  state.recipes.forEach(function(rid){
+    var r=getRecipe(rid);if(!r)return;
+    var a=getAdj(rid),scale=a.scale||1;
+    r.ingredients.forEach(function(ing,idx){
+      var p;
+      if(a.edits&&a.edits[idx]!=null){p=parseIngText(a.edits[idx]);}
+      else{p={qty:(ing.qty==null?null:Math.round(ing.qty*scale*100)/100),unit:ing.unit||'',name:ing.text};}
+      var key=normName(p.name);if(!key)return;
+      var row=rowFor(key,p.name.split(',')[0].trim());
+      row.fromRecipe=true;
+      if(ing.optional)row.optional=true;
+      var ci=p.name.indexOf(',');
+      if(!row.desc&&ci>=0)row.desc=p.name.slice(ci+1).trim();
+      addPart(row,p);
+    });
+  });
+  customState.forEach(function(c){
+    var p=parseIngText(c.text);
+    var key=normName(p.name);if(!key)return;
+    var row=rowFor(key,p.name.split(',')[0].trim());
+    row.customIds.push(c.id);
+    addPart(row,p);
+  });
+  return order.map(function(k){return rows[k];});
+}
+function fmtShopQty(row){
+  return row.parts.map(function(p){return formatQty(p.qty)+(p.unit?' '+pluralUnit(p.unit,p.qty):'');}).join(' + ');
+}
+
 // ===== Shopping actions =====
 function toggleShop(id){
   var i=state.recipes.indexOf(id);
@@ -515,27 +614,32 @@ function viewRecipe(id){
 }
 function viewShopping(){
   var h='<a class="back" href="#/">&larr; All recipes</a><h1>Shopping list</h1>';
-  var totalChecked=0,totalItems=0;
-  state.recipes.forEach(function(rid){
-    var r=getRecipe(rid);if(!r)return;
-    var a=getAdj(rid);
-    h+='<div class="card"><div class="shopgroup"><span>'+esc(r.name)+'</span><button onclick="removeFromShop(\''+r.id+'\')">remove</button></div>';
-    r.ingredients.forEach(function(ing,idx){
-      var key=rid+':'+idx;var done=!!state.checked[key];totalItems++;if(done)totalChecked++;
-      h+='<div class="shopitem'+(done?' done':'')+'"><input type="checkbox" id="cb-'+key+'" '+(done?'checked':'')+' onchange="toggleItem(\''+key+'\')"><label for="cb-'+key+'">'+esc(dispIng(r,idx))+(ing.optional?' <span class="opt">(optional)</span>':'')+'</label></div>';
+  var rows=buildShopRows();
+  var totalChecked=0;
+  if(!rows.length){
+    h+='<p class="sub" style="text-align:center;margin:24px 8px 0">Nothing on the list yet - open a recipe and tap "+ Shopping list", or add your own below.</p>';
+  }else{
+    h+='<div class="card">';
+    rows.forEach(function(row){
+      var customOnly=!row.fromRecipe,done,cid='cb-row-'+row.key.replace(/[^a-z0-9]+/g,'-');
+      if(customOnly){
+        done=row.customIds.every(function(id){return customState.some(function(c){return c.id===id&&c.done;});});
+      }else{
+        done=!!state.checked['row:'+row.key];
+      }
+      if(done)totalChecked++;
+      var qty=fmtShopQty(row);
+      var label='<b>'+esc(row.name)+'</b>'+(qty?' - '+esc(qty):'')+(row.desc?(qty?', ':' - ')+esc(row.desc):'')+(row.optional?' <span class="opt">(optional)</span>':'');
+      if(customOnly){
+        h+='<div class="shopitem'+(done?' done':'')+'"><input type="checkbox" id="'+cid+'" '+(done?'checked':'')+' onchange="toggleCustom(\''+row.customIds[0]+'\')"><label for="'+cid+'">'+label+'</label><button class="delbtn" onclick="delCustom(\''+row.customIds[0]+'\')">&times;</button></div>';
+      }else{
+        h+='<div class="shopitem'+(done?' done':'')+'"><input type="checkbox" id="'+cid+'" '+(done?'checked':'')+' onchange="toggleItem(\'row:'+row.key+'\')"><label for="'+cid+'">'+label+'</label></div>';
+      }
     });
     h+='</div>';
-  });
-  if(!state.recipes.length&&!customState.length){
-    h+='<p class="sub" style="text-align:center;margin:24px 8px 0">Nothing from recipes yet - open a recipe and tap "+ Shopping list", or add your own below.</p>';
   }
-  h+='<div class="card"><div class="shopgroup"><span>Custom</span>'+(customState.length?'<button onclick="clearCustom()">clear</button>':'')+'</div>';
-  customState.forEach(function(c){
-    totalItems++;if(c.done)totalChecked++;
-    h+='<div class="shopitem'+(c.done?' done':'')+'"><input type="checkbox" id="cb-'+c.id+'" '+(c.done?'checked':'')+' onchange="toggleCustom(\''+c.id+'\')"><label for="cb-'+c.id+'">'+esc(c.text)+'</label><button class="delbtn" onclick="delCustom(\''+c.id+'\')">&times;</button></div>';
-  });
-  h+='<div class="customadd"><input id="custom-add" placeholder="Add an item - olive oil, candles..." maxlength="120" onkeydown="if(event.key===\'Enter\')addCustomFromInput()"><button class="btn" onclick="addCustomFromInput()">Add</button></div></div>';
-  h+='<div style="margin-top:16px"><button class="btn" onclick="uncheckAll()">Uncheck all ('+totalChecked+'/'+totalItems+')</button><button class="btn" onclick="clearShop()">Clear list</button></div>';
+  h+='<div class="card"><div class="customadd"><input id="custom-add" placeholder="Add an item - 2 lb apples, candles..." maxlength="120" onkeydown="if(event.key===\'Enter\')addCustomFromInput()"><button class="btn" onclick="addCustomFromInput()">Add</button></div></div>';
+  h+='<div style="margin-top:16px"><button class="btn" onclick="uncheckAll()">Uncheck all ('+totalChecked+'/'+rows.length+')</button><button class="btn" onclick="clearShop()">Clear list</button></div>';
   return h;
 }
 
