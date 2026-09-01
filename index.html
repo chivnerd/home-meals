@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>Home Meals</title>
-<!-- v3.0 -->
+<!-- v3.1 -->
 <style>
   *{box-sizing:border-box}
   body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;background:#faf6ef;color:#3a322a;line-height:1.5;margin:0;padding:0 0 48px}
@@ -542,31 +542,31 @@ function viewShopping(){
 // ===== Household sync (Supabase) =====
 var SUPA_URL='https://jyqnxhpzbgifixkhluvj.supabase.co';
 var SUPA_KEY='sb_publishable_y3eGmE7RpMFvFLxu3Syh_w_-AlBvJiB';
-var HOUSEHOLD=(location.search.match(/[?&]h=([a-z0-9-]+)/i)||[])[1]||null;
-if(!HOUSEHOLD){try{HOUSEHOLD=localStorage.getItem('hm-household');}catch(e){}}
-if(HOUSEHOLD){try{localStorage.setItem('hm-household',HOUSEHOLD);}catch(e){}}
+var HH_KEY=(location.search.match(/[?&]h=([a-z0-9-]+)/i)||[])[1]||null;
+if(!HH_KEY){try{HH_KEY=localStorage.getItem('hm-household');}catch(e){}}
+if(HH_KEY){try{localStorage.setItem('hm-household',HH_KEY);}catch(e){}}
 var lastSync=0,pushTimer=null,syncOnline=false;
 function cloudHeaders(){return {'apikey':SUPA_KEY,'Authorization':'Bearer '+SUPA_KEY,'Content-Type':'application/json'};}
 function setSyncUI(){
   var el=document.getElementById('syncstatus');if(!el)return;
-  if(!HOUSEHOLD){el.textContent='';el.className='syncstatus';return;}
-  el.textContent=syncOnline?('Synced across the family - '+HOUSEHOLD):'Sync offline - changes stay on this phone';
+  if(!HH_KEY){el.textContent='';el.className='syncstatus';return;}
+  el.textContent=syncOnline?('Synced across the family - '+HH_KEY):'Sync offline - changes stay on this phone';
   el.className='syncstatus'+(syncOnline?' ok':'');
 }
 function cloudPush(){
-  if(!HOUSEHOLD||cloudPush.off)return;
+  if(!HH_KEY||cloudPush.off)return;
   clearTimeout(pushTimer);
   pushTimer=setTimeout(function(){
     var blob={ratings:ratingsState,comments:commentState,shop:state,custom:customState};
     var now=new Date().toISOString();
-    fetch(SUPA_URL+'/rest/v1/household_state',{method:'POST',headers:Object.assign(cloudHeaders(),{'Prefer':'resolution=merge-duplicates'}),body:JSON.stringify({slug:HOUSEHOLD,state:blob,updated_at:now})})
+    fetch(SUPA_URL+'/rest/v1/household_state',{method:'POST',headers:Object.assign(cloudHeaders(),{'Prefer':'resolution=merge-duplicates'}),body:JSON.stringify({slug:HH_KEY,state:blob,updated_at:now})})
     .then(function(r){if(r.ok){lastSync=Date.parse(now);syncOnline=true;}else{syncOnline=false;}setSyncUI();})
     .catch(function(){syncOnline=false;setSyncUI();});
   },400);
 }
 function cloudPull(seedIfEmpty){
-  if(!HOUSEHOLD)return;
-  fetch(SUPA_URL+'/rest/v1/household_state?slug=eq.'+encodeURIComponent(HOUSEHOLD)+'&select=state,updated_at',{headers:cloudHeaders()})
+  if(!HH_KEY)return;
+  fetch(SUPA_URL+'/rest/v1/household_state?slug=eq.'+encodeURIComponent(HH_KEY)+'&select=state,updated_at',{headers:cloudHeaders()})
   .then(function(r){return r.ok?r.json():[];})
   .then(function(rows){
     syncOnline=true;
