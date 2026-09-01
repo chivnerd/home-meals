@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>Home Meals</title>
-<!-- v3.6 -->
+<!-- v3.7 -->
 <style>
   *{box-sizing:border-box}
   body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;background:#faf6ef;color:#3a322a;line-height:1.5;margin:0;padding:0 0 48px}
@@ -365,16 +365,15 @@ function sendComment(rid,idx){
 
 // ===== Custom shopping items =====
 var LS_CUSTOM='hm-custom-v1';
+function isStepDump(c){
+  if(c.name!=null)return false;
+  var t=c.text||'';
+  return t.length>=50&&t.split(/\s+/).length>=6;
+}
 function loadCustom(){
   try{
     var s=JSON.parse(localStorage.getItem(LS_CUSTOM));
-    if(s&&s.length){
-      return s.filter(function(c){
-        if(c.name!=null)return true;
-        var t=c.text||'';
-        return !(t.length>=50&&t.split(/\s+/).length>=6);
-      });
-    }
+    if(s&&s.length)return s.filter(function(c){return !isStepDump(c);});
   }catch(e){}
   return [];
 }
@@ -731,7 +730,7 @@ function cloudPull(seedIfEmpty){
         if(b.ratings){ratingsState=b.ratings;localStorage.setItem(LS_RATINGS,JSON.stringify(ratingsState));}
         if(b.comments){commentState=b.comments;localStorage.setItem(LS_COMMENTS,JSON.stringify(commentState));}
         if(b.shop){state=b.shop;localStorage.setItem(LS_KEY,JSON.stringify(state));updateCartBadge();}
-        if(b.custom){customState=b.custom;localStorage.setItem(LS_CUSTOM,JSON.stringify(customState));}
+        if(b.custom){customState=b.custom.filter(function(c){return !isStepDump(c);});localStorage.setItem(LS_CUSTOM,JSON.stringify(customState));}
       }finally{cloudPush.off=false;}
       render(true);
     }
