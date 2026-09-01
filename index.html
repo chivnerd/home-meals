@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>Home Meals</title>
-<!-- v2.8 -->
+<!-- v2.9 -->
 <style>
   *{box-sizing:border-box}
   body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;background:#faf6ef;color:#3a322a;line-height:1.5;margin:0;padding:0 0 48px}
@@ -133,7 +133,7 @@ var RECIPES=[
   }
 ];
 var IMPORT_NUMBER='+16504447686';
-var IMPORT_PREFIX='Recipe import: ';
+var IMPORT_PREFIX='Recipe import (extract the recipe from this link and email it to inboxkznzjv@agent.instinct.co with subject "Recipe import"): ';
 
 // ===== State =====
 var LS_KEY='hm-shopping-v1';
@@ -409,8 +409,7 @@ function resetSteps(rid){
 function viewList(){
   var h='<h1>Home Meals</h1><p class="sub">The family recipe book. '+RECIPES.length+' recipe'+(RECIPES.length===1?'':'s')+' and counting.</p>';
   h+='<div class="importcard">'+
-    '<a class="btn" href="'+smsHref(IMPORT_NUMBER,IMPORT_PREFIX)+'">Text it</a>'+
-    '<a class="btn" style="margin-top:10px" href="mailto:inboxkznzjv@agent.instinct.co?subject=Recipe%20import&body=Paste%20the%20blog%20link%20here%3A%0A">Email it</a>'+
+    '<a class="btn" href="'+smsHref(IMPORT_NUMBER,IMPORT_PREFIX)+'">Text it to Instinct</a>'+
     '<p class="helper">Send a blog link - the recipe lands here, minus the life story.</p></div>';
   RECIPES.forEach(function(r){
     h+='<a class="cardlink" href="#/recipe/'+r.id+'"><div class="card">'+
