@@ -1,0 +1,311 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Home Meals</title>
+<!-- v2.2 -->
+<style>
+  *{box-sizing:border-box}
+  body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;background:#faf6ef;color:#3a322a;line-height:1.5;margin:0;padding:0 0 48px}
+  .wrap{max-width:640px;margin:0 auto;padding:0 18px}
+  .topbar{position:sticky;top:0;background:#faf6ef;border-bottom:1px solid #eadfd2;padding:12px 18px;display:flex;align-items:center;justify-content:space-between;z-index:10}
+  .topbar a.brand{font-family:Georgia,"Times New Roman",serif;font-size:20px;color:#3a322a;text-decoration:none;font-weight:bold}
+  .cartbtn{background:#c96f4a;color:#fffdf8;border:none;border-radius:999px;padding:8px 14px;font-size:14px;text-decoration:none;display:inline-block}
+  h1{font-family:Georgia,"Times New Roman",serif;font-size:28px;margin:24px 0 2px}
+  .sub{color:#8a7d6d;font-size:14px;margin:0 0 8px}
+  .card{background:#fffdf8;border:1px solid #eadfd2;border-radius:16px;padding:18px;margin-top:16px}
+  a.cardlink{text-decoration:none;color:inherit;display:block}
+  h2{font-family:Georgia,"Times New Roman",serif;font-size:20px;margin:0 0 4px}
+  h3{font-size:13px;text-transform:uppercase;letter-spacing:.6px;color:#8a7d6d;margin:18px 0 8px}
+  .meta{color:#8a7d6d;font-size:14px}
+  .tag{display:inline-block;background:#f3e0d5;color:#c96f4a;border-radius:999px;padding:2px 10px;font-size:12px;margin:6px 6px 0 0}
+  .hh{display:inline-block;border-radius:999px;padding:2px 10px;font-size:12px;margin:6px 6px 0 0}
+  .ok{background:#e6efe4;color:#5d8a5a}
+  .no{background:#f3e0d5;color:#c96f4a}
+  .macros{display:flex;gap:10px;margin-top:12px;flex-wrap:wrap}
+  .macro{background:#faf6ef;border:1px solid #eadfd2;border-radius:10px;padding:8px 12px;text-align:center;min-width:64px}
+  .macro b{display:block;font-size:15px}
+  .macro span{font-size:11px;color:#8a7d6d}
+  ul,ol{margin:0;padding-left:20px}
+  li{margin:6px 0}
+  .opt{color:#8a7d6d;font-size:13px}
+  .note{background:#e6efe4;color:#5d8a5a;border-radius:10px;padding:10px 12px;font-size:14px;margin-top:16px}
+  .btn{display:inline-block;border-radius:12px;padding:10px 14px;font-size:15px;border:1px solid #eadfd2;background:#fffdf8;color:#3a322a;text-decoration:none;margin:8px 8px 0 0;cursor:pointer}
+  .btn.primary{background:#c96f4a;border-color:#c96f4a;color:#fffdf8}
+  .btn.inlist{background:#e6efe4;border-color:#cfe0cc;color:#5d8a5a}
+  .back{color:#c96f4a;text-decoration:none;font-size:14px;display:inline-block;margin-top:18px}
+  .shopitem{display:flex;align-items:flex-start;gap:10px;padding:8px 0;border-bottom:1px solid #f0e7db}
+  .shopitem:last-child{border-bottom:none}
+  .shopitem input{margin-top:4px;width:20px;height:20px;accent-color:#5d8a5a;flex-shrink:0}
+  .shopitem label{flex:1;font-size:15px}
+  .shopitem.done label{text-decoration:line-through;color:#b3a797}
+  .shopgroup{font-size:13px;text-transform:uppercase;letter-spacing:.6px;color:#8a7d6d;margin:16px 0 4px;display:flex;justify-content:space-between;align-items:center}
+  .shopgroup button{background:none;border:none;color:#c96f4a;font-size:12px;cursor:pointer;text-transform:none;letter-spacing:0}
+  .cookitem{display:flex;align-items:flex-start;gap:14px;padding:16px 12px;border-bottom:1px solid #f0e7db;cursor:pointer;-webkit-tap-highlight-color:transparent;user-select:none}
+  .cookitem:last-child{border-bottom:none}
+  .cookitem input{margin-top:3px;width:26px;height:26px;accent-color:#5d8a5a;flex-shrink:0;pointer-events:none}
+  .cookitem .stepnum{font-family:Georgia,"Times New Roman",serif;font-weight:bold;color:#c96f4a;min-width:24px;font-size:18px}
+  .cookitem .steptext{flex:1;font-size:17px;line-height:1.55}
+  .cookitem.done .steptext,.cookitem.done .stepnum{text-decoration:line-through;color:#b3a797}
+  .empty{color:#8a7d6d;text-align:center;padding:32px 0}
+  .importcard{background:#c96f4a;border-radius:16px;padding:18px;margin-top:16px;color:#fffdf8;text-align:center}
+  .importcard .btn{display:block;width:100%;background:#fffdf8;color:#c96f4a;border:none;font-weight:bold;font-size:16px;padding:14px;margin:0;border-radius:12px}
+  .importcard .helper{font-size:13px;margin:10px 0 0;opacity:.92}
+  .toast{position:fixed;left:50%;bottom:24px;transform:translateX(-50%);background:#3a322a;color:#faf6ef;padding:10px 18px;border-radius:999px;font-size:14px;opacity:0;transition:opacity .25s;pointer-events:none;white-space:nowrap}
+  .toast.show{opacity:1}
+</style>
+</head>
+<body>
+<div class="topbar">
+  <a class="brand" href="#/">Home Meals</a>
+  <a class="cartbtn" href="#/list" id="cartBtn">Shopping list</a>
+</div>
+<div class="wrap" id="app"></div>
+<div class="toast" id="toast"></div>
+<script>
+// ===== Data =====
+var HOUSEHOLD=[
+  {name:'Corey',needs:[]},
+  {name:'Erin',needs:['gluten-free','dairy-free','nightshade-free']},
+  {name:'Camille',needs:['gluten-free']},
+  {name:'Farrah',needs:['gluten-free']},
+  {name:'Quentin',needs:[]}
+];
+var RECIPES=[
+  {
+    id:'teriyaki-beef-broccoli-noodles',
+    name:'Teriyaki Beef + Broccoli Noodles',
+    serves:5,
+    time:'~30 min',
+    tags:['gluten-free','dairy-free','nightshade-free'],
+    ingredients:[
+      {text:'2 lb ground sirloin'},
+      {text:'1 box Jovial GF brown-rice spaghetti'},
+      {text:'1 broccoli crown, cut into florets'},
+      {text:'1 yellow onion, sliced'},
+      {text:'4 cloves garlic, minced'},
+      {text:'Thumb of ginger, grated'},
+      {text:'4 tbsp tamari'},
+      {text:'3 tbsp coconut aminos'},
+      {text:'3 tbsp maple syrup'},
+      {text:'Black pepper, white pepper, and salt'},
+      {text:'Star anise or a cinnamon stick',optional:true},
+      {text:'Toasted sesame oil',optional:true},
+      {text:'Sesame seeds',optional:true},
+      {text:'Scallions, sliced',optional:true}
+    ],
+    steps:[
+      'Salt the pasta water and cook the GF spaghetti just shy of done. Reserve a cup of pasta water before draining.',
+      'Drop the broccoli florets into the pasta water for the last 2-3 minutes, or steam them separately.',
+      'High heat, a little oil. Brown the beef with black pepper, white pepper, and salt, breaking it up well. Drain excess fat.',
+      'Push the beef aside, drop to medium heat. Onion in, 3-4 minutes, then garlic and grated ginger for 1 minute.',
+      'Add the sauce: tamari, coconut aminos, and maple syrup (simmer in the star anise or cinnamon stick if using). Scrape the pan and let it bubble 1-2 minutes.',
+      'Toss in the pasta and broccoli. Loosen with pasta water as needed and adjust salt and sweetness to taste.',
+      'Finish with toasted sesame oil, sesame seeds, and scallions. No chili flakes in the pan (nightshade allergy) - heat goes on at the table.'
+    ],
+    macros:{cal:'~650',protein:'44g',carbs:'68g',fat:'18g'},
+    note:'Wife-safe: celiac gluten-free, dairy-free, and nightshade-free.'
+  }
+];
+var IMPORT_NUMBER='+16504447686';
+var IMPORT_PREFIX='Recipe import: ';
+
+// ===== State =====
+var LS_KEY='hm-shopping-v1';
+function loadState(){
+  try{var s=JSON.parse(localStorage.getItem(LS_KEY));if(s&&s.recipes&&s.checked)return s;}catch(e){}
+  return {recipes:[],checked:{}};
+}
+function saveState(s){localStorage.setItem(LS_KEY,JSON.stringify(s));}
+var state=loadState();
+var LS_COOK='hm-cooking-v1';
+function loadCook(){
+  try{var s=JSON.parse(localStorage.getItem(LS_COOK));if(s&&typeof s==='object')return s;}catch(e){}
+  return {};
+}
+function saveCook(){localStorage.setItem(LS_COOK,JSON.stringify(cookState));}
+var cookState=loadCook();
+function isStepDone(rid,idx){return !!(cookState[rid]&&cookState[rid][idx]);}
+function toggleStep(rid,idx){
+  if(!cookState[rid])cookState[rid]={};
+  if(cookState[rid][idx])delete cookState[rid][idx];else cookState[rid][idx]=true;
+  saveCook();render();
+}
+function resetSteps(rid){
+  delete cookState[rid];saveCook();render();toast('Steps reset - enjoy dinner');
+}
+
+// ===== Helpers =====
+function esc(s){return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');}
+function getRecipe(id){for(var i=0;i<RECIPES.length;i++)if(RECIPES[i].id===id)return RECIPES[i];return null;}
+function worksFor(r,p){for(var i=0;i<p.needs.length;i++)if(r.tags.indexOf(p.needs[i])<0)return false;return true;}
+function householdRow(r){
+  return HOUSEHOLD.map(function(p){
+    var ok=worksFor(r,p);
+    return '<span class="hh '+(ok?'ok':'no')+'">'+(ok?'&#10003; ':'&#10005; ')+esc(p.name)+'</span>';
+  }).join('');
+}
+function tagRow(r){return r.tags.map(function(t){return '<span class="tag">'+esc(t)+'</span>';}).join('');}
+function macroRow(r){
+  return '<div class="macros">'+
+    '<div class="macro"><b>'+esc(r.macros.cal)+'</b><span>cal</span></div>'+
+    '<div class="macro"><b>'+esc(r.macros.protein)+'</b><span>protein</span></div>'+
+    '<div class="macro"><b>'+esc(r.macros.carbs)+'</b><span>carbs</span></div>'+
+    '<div class="macro"><b>'+esc(r.macros.fat)+'</b><span>fat</span></div></div>';
+}
+function toast(msg){
+  var t=document.getElementById('toast');t.textContent=msg;t.classList.add('show');
+  setTimeout(function(){t.classList.remove('show');},2200);
+}
+function updateCartBadge(){
+  var n=state.recipes.length;
+  document.getElementById('cartBtn').textContent='Shopping list'+(n?' ('+n+')':'');
+}
+function isMobile(){return /iPad|iPhone|iPod|Android/i.test(navigator.userAgent);}
+function smsHref(number,body){
+  var sep=/iPad|iPhone|iPod/.test(navigator.userAgent)?'&':'?';
+  return 'sms:'+number+sep+'body='+encodeURIComponent(body);
+}
+function copyText(txt,okMsg){
+  function fallback(){
+    var ta=document.createElement('textarea');ta.value=txt;ta.style.position='fixed';ta.style.opacity='0';
+    document.body.appendChild(ta);ta.select();
+    try{document.execCommand('copy');toast(okMsg);}catch(e){toast('Copy failed');}
+    document.body.removeChild(ta);
+  }
+  if(navigator.clipboard&&navigator.clipboard.writeText){
+    navigator.clipboard.writeText(txt).then(function(){toast(okMsg);},fallback);
+  }else{fallback();}
+}
+
+// ===== Send recipe as text =====
+function recipeText(r){
+  var lines=[];
+  lines.push(r.name);
+  lines.push('Serves '+r.serves+' · '+r.time+' | '+r.tags.join(', '));
+  lines.push('');
+  lines.push('INGREDIENTS');
+  r.ingredients.forEach(function(i){lines.push('- '+i.text+(i.optional?' (optional)':''));});
+  lines.push('');
+  lines.push('STEPS');
+  r.steps.forEach(function(s,i){lines.push((i+1)+'. '+s);});
+  lines.push('');
+  lines.push('Macros per serving: '+r.macros.cal+' cal, '+r.macros.protein+' protein, '+r.macros.carbs+' carbs, '+r.macros.fat+' fat');
+  if(r.note){lines.push('Note: '+r.note);}
+  return lines.join('\n');
+}
+function sendRecipe(id){
+  var r=getRecipe(id);if(!r)return;
+  if(isMobile()){window.location.href=smsHref('',recipeText(r));}
+  else{copyText(recipeText(r),'Recipe copied - paste it anywhere');}
+}
+function copyRecipe(id){
+  var r=getRecipe(id);if(!r)return;
+  copyText(recipeText(r),'Recipe copied');
+}
+
+// ===== Import from blog =====
+function importFromBlog(){
+  if(isMobile()){window.location.href=smsHref(IMPORT_NUMBER,IMPORT_PREFIX);}
+  else{copyText(IMPORT_PREFIX,'Text it to +1 (650) 444-7686 - intro copied');}
+}
+
+// ===== Views =====
+function viewList(){
+  var h='<h1>Home Meals</h1><p class="sub">The family recipe book. '+RECIPES.length+' recipe'+(RECIPES.length===1?'':'s')+' and counting.</p>';
+  h+='<div class="importcard"><button class="btn" onclick="importFromBlog()">Import from blog</button><p class="helper">Text a blog link - the recipe lands here, minus the life story.</p></div>';
+  RECIPES.forEach(function(r){
+    h+='<a class="cardlink" href="#/recipe/'+r.id+'"><div class="card">'+
+      '<h2>'+esc(r.name)+'</h2>'+
+      '<div class="meta">Serves '+esc(r.serves)+' &middot; '+esc(r.time)+'</div>'+
+      '<div>'+tagRow(r)+'</div>'+
+      '<div>'+householdRow(r)+'</div>'+
+      '</div></a>';
+  });
+  return h;
+}
+function viewRecipe(id){
+  var r=getRecipe(id);
+  if(!r)return '<a class="back" href="#/">&larr; All recipes</a><div class="empty">Recipe not found.</div>';
+  var inList=state.recipes.indexOf(r.id)>=0;
+  return '<a class="back" href="#/">&larr; All recipes</a><div class="card">'+
+    '<h2>'+esc(r.name)+'</h2>'+
+    '<div class="meta">Serves '+esc(r.serves)+' &middot; '+esc(r.time)+'</div>'+
+    '<div>'+tagRow(r)+'</div>'+
+    '<div>'+householdRow(r)+'</div>'+
+    macroRow(r)+
+    '<div style="margin-top:14px">'+
+      '<button class="btn primary" onclick="sendRecipe(\''+r.id+'\')">Send as text</button>'+
+      '<button class="btn" onclick="copyRecipe(\''+r.id+'\')">Copy</button>'+
+      '<button class="btn '+(inList?'inlist':'')+'" onclick="toggleShop(\''+r.id+'\')">'+(inList?'&#10003; On shopping list':'+ Shopping list')+'</button>'+
+    '</div>'+
+    '<h3>Ingredients</h3><ul>'+
+      r.ingredients.map(function(i){return '<li>'+esc(i.text)+(i.optional?' <span class="opt">(optional)</span>':'')+'</li>';}).join('')+
+    '</ul>'+
+    '<h3>Steps</h3><div class="cooklist">'+
+      r.steps.map(function(st,idx){
+        var done=isStepDone(r.id,idx);
+        return '<div class="cookitem'+(done?' done':'')+'" onclick="toggleStep(\''+r.id+'\','+idx+')">'+
+          '<input type="checkbox" '+(done?'checked':'')+' tabindex="-1">'+
+          '<span class="stepnum">'+(idx+1)+'</span>'+
+          '<span class="steptext">'+esc(st)+'</span></div>';
+      }).join('')+
+    '</div>'+
+    '<div style="margin-top:12px"><button class="btn" onclick="resetSteps(\''+r.id+'\')">Reset all steps</button></div>'+
+    (r.note?'<div class="note">'+esc(r.note)+'</div>':'')+
+    '</div>';
+}
+function viewShopping(){
+  var h='<a class="back" href="#/">&larr; All recipes</a><h1>Shopping list</h1>';
+  if(!state.recipes.length){
+    return h+'<div class="empty">Nothing here yet.<br>Open a recipe and tap "+ Shopping list".</div>';
+  }
+  var totalChecked=0,totalItems=0;
+  state.recipes.forEach(function(rid){
+    var r=getRecipe(rid);if(!r)return;
+    h+='<div class="card"><div class="shopgroup"><span>'+esc(r.name)+'</span><button onclick="removeFromShop(\''+r.id+'\')">remove</button></div>';
+    r.ingredients.forEach(function(ing,idx){
+      var key=rid+':'+idx;var done=!!state.checked[key];totalItems++;if(done)totalChecked++;
+      h+='<div class="shopitem'+(done?' done':'')+'"><input type="checkbox" id="cb-'+key+'" '+(done?'checked':'')+' onchange="toggleItem(\''+key+'\')"><label for="cb-'+key+'">'+esc(ing.text)+(ing.optional?' <span class="opt">(optional)</span>':'')+'</label></div>';
+    });
+    h+='</div>';
+  });
+  h+='<div style="margin-top:16px"><button class="btn" onclick="uncheckAll()">Uncheck all ('+totalChecked+'/'+totalItems+')</button><button class="btn" onclick="clearShop()">Clear list</button></div>';
+  return h;
+}
+
+// ===== Shopping actions =====
+function toggleShop(id){
+  var i=state.recipes.indexOf(id);
+  if(i>=0){state.recipes.splice(i,1);}
+  else{state.recipes.push(id);toast('Added to shopping list');}
+  saveState(state);updateCartBadge();render();
+}
+function removeFromShop(id){
+  var i=state.recipes.indexOf(id);if(i>=0)state.recipes.splice(i,1);
+  Object.keys(state.checked).forEach(function(k){if(k.indexOf(id+':')===0)delete state.checked[k];});
+  saveState(state);updateCartBadge();render();
+}
+function toggleItem(key){
+  if(state.checked[key])delete state.checked[key];else state.checked[key]=true;
+  saveState(state);render();
+}
+function uncheckAll(){state.checked={};saveState(state);render();}
+function clearShop(){state={recipes:[],checked:{}};saveState(state);updateCartBadge();render();}
+
+// ===== Router =====
+function render(){
+  var hash=location.hash||'#/';
+  var app=document.getElementById('app');
+  if(hash.indexOf('#/recipe/')===0){app.innerHTML=viewRecipe(hash.slice(9));}
+  else if(hash==='#/list'){app.innerHTML=viewShopping();}
+  else{app.innerHTML=viewList();}
+  window.scrollTo(0,0);
+}
+window.addEventListener('hashchange',render);
+updateCartBadge();
+render();
+</script>
+</body>
+</html>
