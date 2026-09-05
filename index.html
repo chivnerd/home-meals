@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>Home Meals</title>
-<!-- v4.3 - stale-client version guard + non-destructive sync push -->
+<!-- v4.4 - delete button moved to bottom of recipe page (below comments), always visible -->
 <style>
   *{box-sizing:border-box}
   body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;background:#faf6ef;color:#3a322a;line-height:1.5;margin:0;padding:0 0 48px}
@@ -892,8 +892,7 @@ function viewRecipe(id){
   if(editing){
     h+='<h3>Tags</h3><div class="tagwrap"><input id="edit-tags" class="ingedit" value="'+escAttr((r.tags||[]).join(', '))+'" autocomplete="off" oninput="tagSuggest(this)" onblur="hideTagSuggest(this)"><div class="tagsuggest" style="display:none"></div></div>'+
       '<div style="margin-top:4px"><button class="btn primary" onclick="saveTags(\''+r.id+'\')">Save tags for everyone</button></div>'+
-      '<div class="note"><textarea onchange="saveNoteEdit(\''+r.id+'\',this.value)">'+esc(note||'')+'</textarea></div>'+
-      '<div style="margin-top:14px;text-align:center"><button class="btn" style="color:#b03a2e;border-color:#e5b8b2" onclick="deleteRecipe(\''+r.id+'\')">Delete this recipe</button></div>';
+      '<div class="note"><textarea onchange="saveNoteEdit(\''+r.id+'\',this.value)">'+esc(note||'')+'</textarea></div>';
   }else if(note){
     h+='<div class="note">'+esc(note)+'</div>';
   }
@@ -918,6 +917,8 @@ function viewRecipe(id){
     h+='<div class="comment"><span class="actions"><a href="javascript:sendComment(\''+r.id+'\','+idx+')">text in</a><button onclick="delComment(\''+r.id+'\','+idx+')">&times;</button></span><span class="who">'+esc(c.name)+'</span><br>'+esc(c.text)+'</div>';
   });
   h+='<div class="commentform"><input id="cm-name" placeholder="Name (optional)" maxlength="30"><input id="cm-text" placeholder="Add a note - the kids loved it, used 5 tbsp tamari..." maxlength="500"><button class="btn" onclick="addComment(\''+r.id+'\')">Add note</button></div>';
+
+  h+='<div style="margin-top:22px;padding-top:14px;border-top:1px solid #f0e7db;text-align:center"><button class="btn" style="color:#b03a2e;border-color:#e5b8b2" onclick="deleteRecipe(\''+r.id+'\')">Delete this recipe</button></div>';
 
   h+='</div>';
   return h;
@@ -960,7 +961,7 @@ var HH_KEY=(location.search.match(/[?&]h=([a-z0-9-]+)/i)||[])[1]||null;
 if(!HH_KEY){try{HH_KEY=localStorage.getItem('hm-household');}catch(e){}}
 if(HH_KEY){try{localStorage.setItem('hm-household',HH_KEY);}catch(e){}}
 var lastRemoteJSON='',pushTimer=null,syncOnline=false,syncTried=false,clientStale=false;
-var APP_BUILD=10;
+var APP_BUILD=11;
 function canon(v){if(Array.isArray(v)){return '['+v.map(canon).join(',')+']';}if(v&&typeof v==='object'){return '{'+Object.keys(v).sort().map(function(k){return JSON.stringify(k)+':'+canon(v[k])}).join(',')+'}';}return JSON.stringify(v);}
 function cloudHeaders(){return {'apikey':SUPA_KEY,'Authorization':'Bearer '+SUPA_KEY,'Content-Type':'application/json'};}
 function setSyncUI(){
