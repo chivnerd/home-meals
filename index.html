@@ -34,6 +34,7 @@
   .macro{background:#faf6ef;border:1px solid #eadfd2;border-radius:10px;padding:8px 12px;text-align:center;min-width:64px}
   .macro b{display:block;font-size:15px}
   .macro span{font-size:11px;color:#8a7d6d}
+  .macroest{font-size:11px;color:#8a7d6d;margin-top:2px}
   ul,ol{margin:0;padding-left:20px}
   li{margin:6px 0}
   .opt{color:#8a7d6d;font-size:13px}
@@ -190,6 +191,195 @@ function pullRecipesOnce(){
   }).catch(function(){});
 }
 
+// ===== Macro estimation (built-in common-ingredient table; macros per 100g, unit overrides in grams) =====
+var NUTRI=[
+ {k:['ground sirloin'],cal:250,p:26,c:0,f:15},
+ {k:['ground beef'],cal:254,p:17,c:0,f:20},
+ {k:['beef','steak','sirloin','chuck roast','stew meat'],cal:250,p:26,c:0,f:15},
+ {k:['chicken breast'],cal:165,p:31,c:0,f:3.6,each:172},
+ {k:['chicken thigh'],cal:209,p:26,c:0,f:11,each:125},
+ {k:['chicken'],cal:220,p:27,c:0,f:12},
+ {k:['ground turkey','turkey'],cal:176,p:21,c:0,f:10},
+ {k:['ground pork'],cal:263,p:17,c:0,f:21},
+ {k:['pork'],cal:242,p:27,c:0,f:14},
+ {k:['bacon'],cal:541,p:37,c:1.4,f:42,each:25},
+ {k:['sausage'],cal:300,p:12,c:2,f:27,each:75},
+ {k:['ham'],cal:145,p:21,c:1.5,f:6},
+ {k:['salmon'],cal:208,p:20,c:0,f:13},
+ {k:['cod','tilapia','white fish','halibut','mahi'],cal:90,p:19,c:0,f:1.2},
+ {k:['shrimp'],cal:99,p:24,c:0,f:0.3},
+ {k:['tuna'],cal:116,p:26,c:0,f:1,each:142},
+ {k:['tofu'],cal:76,p:8,c:1.9,f:4.8},
+ {k:['egg'],cal:143,p:12.6,c:0.7,f:9.5,each:50},
+ {k:['butter'],cal:717,p:0.9,c:0.1,f:81,tbsp:14,cup:227},
+ {k:['olive oil'],cal:884,p:0,c:0,f:100,tbsp:13.5},
+ {k:['sesame oil'],cal:884,p:0,c:0,f:100,tbsp:13.5},
+ {k:['coconut oil'],cal:862,p:0,c:0,f:100,tbsp:13.6},
+ {k:['oil','shortening'],cal:884,p:0,c:0,f:100,tbsp:13.5},
+ {k:['buttermilk'],cal:40,p:3.3,c:4.8,f:0.9,cup:245},
+ {k:['heavy cream','whipping cream'],cal:340,p:2.8,c:2.8,f:36,tbsp:15,cup:238},
+ {k:['sour cream'],cal:198,p:2.5,c:4.6,f:19,tbsp:12,cup:230},
+ {k:['cream cheese'],cal:342,p:6,c:4.1,f:34,tbsp:14.5},
+ {k:['greek yogurt'],cal:97,p:9,c:3.9,f:5,cup:245},
+ {k:['yogurt'],cal:61,p:3.5,c:4.7,f:3.3,cup:245},
+ {k:['milk'],cal:61,p:3.2,c:4.8,f:3.3,cup:244},
+ {k:['cheddar'],cal:402,p:25,c:1.3,f:33,cup:113},
+ {k:['mozzarella'],cal:280,p:28,c:3.1,f:17,cup:112},
+ {k:['parmesan'],cal:431,p:38,c:4.1,f:29,tbsp:5,cup:100},
+ {k:['feta'],cal:264,p:14,c:4,f:21,cup:150},
+ {k:['cheese'],cal:350,p:22,c:2,f:27,cup:113},
+ {k:['almond flour'],cal:571,p:21,c:21,f:50,cup:96},
+ {k:['gluten free flour','gf flour'],cal:366,p:6,c:81,f:1,cup:140},
+ {k:['flour'],cal:364,p:10,c:76,f:1,cup:125,tbsp:8},
+ {k:['brown sugar'],cal:380,p:0,c:98,f:0,cup:220,tbsp:13.7},
+ {k:['powdered sugar','confectioners sugar'],cal:389,p:0,c:100,f:0,cup:120},
+ {k:['sugar'],cal:387,p:0,c:100,f:0,cup:200,tbsp:12.5,tsp:4},
+ {k:['maple syrup'],cal:260,p:0,c:67,f:0,tbsp:20,cup:315},
+ {k:['honey'],cal:304,p:0.3,c:82,f:0,tbsp:21,cup:339},
+ {k:['rice'],cal:365,p:7.1,c:80,f:0.7,cup:185},
+ {k:['spaghetti','pasta','noodles','penne','macaroni','rigatoni','fusilli','linguine','fettuccine'],cal:371,p:13,c:75,f:1.5,each:340},
+ {k:['breadcrumbs','bread crumbs'],cal:395,p:13,c:72,f:5,cup:108},
+ {k:['bread'],cal:265,p:9,c:49,f:3.2,each:30},
+ {k:['bun','roll'],cal:280,p:9,c:50,f:4.5,each:60},
+ {k:['oats','oatmeal'],cal:379,p:13,c:68,f:6.5,cup:81},
+ {k:['cornmeal'],cal:362,p:8,c:77,f:3.6,cup:157},
+ {k:['quinoa'],cal:368,p:14,c:64,f:6,cup:170},
+ {k:['lentils'],cal:352,p:25,c:63,f:1.1,cup:192},
+ {k:['black beans','kidney beans','pinto beans','beans'],cal:132,p:9,c:24,f:0.5,cup:172,each:425},
+ {k:['chickpeas','garbanzo'],cal:164,p:9,c:27,f:2.6,cup:164,each:425},
+ {k:['tortilla'],cal:300,p:8,c:50,f:7,each:40},
+ {k:['broccoli'],cal:34,p:2.8,c:6.6,f:0.4,cup:91,each:250},
+ {k:['onion'],cal:40,p:1.1,c:9.3,f:0.1,each:110,cup:160},
+ {k:['shallot'],cal:72,p:2.5,c:17,f:0.1,each:40},
+ {k:['garlic'],cal:149,p:6.4,c:33,f:0.5,each:3},
+ {k:['scallion','green onion','chives'],cal:32,p:1.8,c:7.3,f:0.2,each:15},
+ {k:['carrot'],cal:41,p:0.9,c:9.6,f:0.2,each:61},
+ {k:['bell pepper','green pepper','red pepper'],cal:31,p:1,c:6,f:0.3,each:120},
+ {k:['sweet potato'],cal:86,p:1.6,c:20,f:0.1,each:130},
+ {k:['potato'],cal:77,p:2,c:17,f:0.1,each:170},
+ {k:['zucchini','squash'],cal:17,p:1.2,c:3.1,f:0.3,each:200},
+ {k:['spinach'],cal:23,p:2.9,c:3.6,f:0.4,cup:30},
+ {k:['kale'],cal:35,p:2.9,c:4.4,f:1.5,cup:67},
+ {k:['lettuce','arugula','greens'],cal:15,p:1.4,c:2.9,f:0.2,cup:36},
+ {k:['crushed tomatoes','diced tomatoes','tomato sauce','marinara','pasta sauce'],cal:32,p:1.6,c:7,f:0.3,cup:245,each:400},
+ {k:['tomato paste'],cal:82,p:4.3,c:19,f:0.5,tbsp:16},
+ {k:['tomato'],cal:18,p:0.9,c:3.9,f:0.2,each:123},
+ {k:['avocado'],cal:160,p:2,c:8.5,f:14.7,each:150},
+ {k:['mushroom'],cal:22,p:3.1,c:3.3,f:0.3,cup:70},
+ {k:['corn'],cal:96,p:3.4,c:21,f:1.5,cup:145},
+ {k:['cucumber'],cal:15,p:0.7,c:3.6,f:0.1,each:200},
+ {k:['celery'],cal:16,p:0.7,c:3,f:0.2,each:40},
+ {k:['green beans'],cal:31,p:1.8,c:7,f:0.1,cup:100},
+ {k:['peas'],cal:81,p:5.4,c:14,f:0.4,cup:145},
+ {k:['cauliflower'],cal:25,p:2,c:5,f:0.1,cup:107},
+ {k:['cabbage'],cal:25,p:1.3,c:6,f:0.1,cup:89},
+ {k:['apple'],cal:52,p:0.3,c:14,f:0.2,each:182},
+ {k:['banana'],cal:89,p:1.1,c:23,f:0.3,each:118},
+ {k:['orange'],cal:47,p:0.9,c:12,f:0.1,each:131},
+ {k:['lemon'],cal:29,p:1.1,c:9.3,f:0.3,each:58},
+ {k:['lime'],cal:30,p:0.7,c:11,f:0.2,each:67},
+ {k:['blueberries','strawberries','raspberries','berries'],cal:50,p:0.7,c:12,f:0.3,cup:148},
+ {k:['ginger'],cal:80,p:1.8,c:18,f:0.8,tbsp:6,each:11},
+ {k:['baking powder','baking soda','yeast'],cal:97,p:0,c:46,f:0},
+ {k:['cilantro','parsley','basil leaves','herbs'],cal:36,p:3,c:6,f:0.8,cup:16},
+ {k:['soy sauce','tamari'],cal:53,p:8,c:4.9,f:0.1,tbsp:16},
+ {k:['coconut aminos'],cal:30,p:0,c:6,f:0,tbsp:15},
+ {k:['vinegar'],cal:21,p:0,c:0.9,f:0,tbsp:15},
+ {k:['sesame seeds'],cal:573,p:18,c:23,f:50,tbsp:9},
+ {k:['peanut butter'],cal:588,p:25,c:20,f:50,tbsp:16},
+ {k:['almond butter'],cal:614,p:21,c:19,f:56,tbsp:16},
+ {k:['tahini'],cal:595,p:17,c:21,f:54,tbsp:15},
+ {k:['salsa'],cal:36,p:1.5,c:7,f:0.2,tbsp:16},
+ {k:['ketchup'],cal:112,p:1.2,c:27,f:0.1,tbsp:17},
+ {k:['mustard'],cal:66,p:4,c:5,f:3,tbsp:15},
+ {k:['mayonnaise','mayo'],cal:680,p:1,c:0.6,f:75,tbsp:14},
+ {k:['coconut milk'],cal:230,p:2.3,c:5.5,f:24,cup:226,each:400},
+ {k:['broth','stock'],cal:10,p:1,c:1,f:0.2,cup:240},
+ {k:['chocolate chips','chocolate'],cal:479,p:4,c:63,f:24,cup:168},
+ {k:['cocoa'],cal:228,p:20,c:58,f:14,tbsp:5},
+ {k:['walnuts'],cal:654,p:15,c:14,f:65,cup:117},
+ {k:['almonds'],cal:579,p:21,c:22,f:50,cup:143},
+ {k:['pecans'],cal:691,p:9,c:14,f:72,cup:109},
+ {k:['raisins'],cal:299,p:3,c:79,f:0.5,cup:165},
+ {k:['olives'],cal:145,p:1,c:4,f:15,cup:135},
+ {k:['wine'],cal:85,p:0.1,c:2.6,f:0,cup:235},
+ {k:['beer'],cal:43,p:0.5,c:3.6,f:0,each:355},
+ {k:['vanilla'],cal:288,p:0,c:12.7,f:0,tsp:4.2},
+ {k:['cinnamon'],cal:247,p:4,c:81,f:1.2},
+ {k:['cumin'],cal:375,p:18,c:44,f:22},
+ {k:['paprika','chili powder'],cal:282,p:14,c:54,f:13},
+ {k:['oregano','thyme','rosemary','basil','spices','seasoning'],cal:265,p:9,c:69,f:4.3},
+ {k:['garlic powder','onion powder'],cal:331,p:17,c:73,f:0.7},
+ {k:['black pepper','pepper'],cal:255,p:10,c:64,f:3.3},
+ {k:['salt'],cal:0,p:0,c:0,f:0},
+ {k:['water','ice'],cal:0,p:0,c:0,f:0}
+];
+function nutMatch(name){
+  var n=normName(name);
+  if(!n)return null;
+  if(!nutMatch.sorted){
+    nutMatch.sorted=[];
+    NUTRI.forEach(function(e){e.k.forEach(function(kw){nutMatch.sorted.push({kw:normName(kw),e:e});});});
+    nutMatch.sorted.sort(function(a,b){return b.kw.length-a.kw.length;});
+  }
+  for(var i=0;i<nutMatch.sorted.length;i++){
+    var kw=nutMatch.sorted[i].kw;
+    var idx=n.indexOf(kw);
+    while(idx>=0){
+      var before=idx===0||n.charAt(idx-1)===' ';
+      var end=idx+kw.length;
+      var after=end===n.length||n.charAt(end)===' '||(n.charAt(end)==='s'&&(end+1===n.length||n.charAt(end+1)===' '));
+      if(before&&after)return nutMatch.sorted[i].e;
+      idx=n.indexOf(kw,idx+1);
+    }
+  }
+  return null;
+}
+function nutGrams(qty,unit,e){
+  if(qty==null)return e.each||0;
+  var u=unitKey(unit);
+  if(u==='g')return qty;
+  if(u==='kg')return qty*1000;
+  if(u==='oz')return qty*28.35;
+  if(u==='lb')return qty*453.6;
+  if(u==='ml')return qty;
+  if(u==='l')return qty*1000;
+  if(u==='cup')return qty*(e.cup||200);
+  if(u==='tbsp')return qty*(e.tbsp||13);
+  if(u==='tsp')return qty*(e.tsp||4.5);
+  return qty*(e.each||0);
+}
+function estMacros(ings,serves){
+  var s=parseInt(serves,10);
+  if(!(s>0))return null;
+  var tot={cal:0,p:0,c:0,f:0},missed=[],matched=0;
+  ings.forEach(function(ing){
+    var e=nutMatch(ing.text);
+    if(!e){missed.push(ing.text.split(',')[0]);return;}
+    var g=nutGrams(ing.qty==null?null:ing.qty,ing.unit||'',e);
+    if(g<=0){if(e.cal>50)missed.push(ing.text.split(',')[0]);return;}
+    matched++;
+    tot.cal+=e.cal*g/100;tot.p+=e.p*g/100;tot.c+=e.c*g/100;tot.f+=e.f*g/100;
+  });
+  if(!matched)return null;
+  return {cal:Math.round(tot.cal/s/5)*5,p:Math.round(tot.p/s),c:Math.round(tot.c/s),f:Math.round(tot.f/s),missed:missed};
+}
+function fillMacroEstimates(){
+  var ingEl=document.getElementById('add-ings');
+  var ings=(ingEl.value||'').split('\n').map(parseIngLine).filter(Boolean);
+  if(!ings.length){toast('Add ingredients first');return;}
+  var serves=(document.getElementById('add-serves').value||'');
+  if(!(parseInt(serves,10)>0)){toast('Fill in Serves first - macros are per serving');return;}
+  var est=estMacros(ings,serves);
+  if(!est){toast('Could not match those ingredients - type macros in yourself');return;}
+  document.getElementById('add-cal').value='~'+est.cal;
+  document.getElementById('add-protein').value=est.p+'g';
+  document.getElementById('add-carbs').value=est.c+'g';
+  document.getElementById('add-fat').value=est.f+'g';
+  window._addMacrosEstimated=true;
+  toast('Filled with per-serving estimates - edit anything'+(est.missed.length?'; skipped: '+est.missed.slice(0,3).join(', '):''));
+}
+
 // ===== Add a recipe (link import + manual entry) =====
 var addDraft=null,addBusy=false,addOpen=false;
 function isoToMin(s){
@@ -295,7 +485,17 @@ function saveNewRecipe(){
     ingredients:ings,steps:steps,note:gv('add-note')};
   var source=gv('add-source');if(source)r.source=source;
   var cal=gv('add-cal'),protein=gv('add-protein'),carbs=gv('add-carbs'),fat=gv('add-fat');
-  if(cal||protein||carbs||fat)r.macros={cal:cal||'-',protein:protein||'-',carbs:carbs||'-',fat:fat||'-'};
+  var estNote='';
+  if(cal||protein||carbs||fat){
+    r.macros={cal:cal||'-',protein:protein||'-',carbs:carbs||'-',fat:fat||'-'};
+    if(window._addMacrosEstimated){r.macros.est=true;window._addMacrosEstimated=false;}
+  }else{
+    var est=estMacros(ings,r.serves);
+    if(est){
+      r.macros={cal:'~'+est.cal,protein:est.p+'g',carbs:est.c+'g',fat:est.f+'g',est:true};
+      estNote=' - macros estimated'+(est.missed.length?' ('+est.missed.length+' ingredient'+(est.missed.length===1?'':'s')+' skipped)':'');
+    }
+  }
   toast('Saving...');
   pullRecipesOnce().then(function(){
     if(getRecipe(r.id))r.id=uniqueId(r.id);
@@ -303,7 +503,7 @@ function saveNewRecipe(){
     addDraft=null;addOpen=false;
     saveRecipes();
     location.hash='#/recipe/'+r.id;
-    toast('Added to the family book');
+    toast('Added to the family book'+estNote);
   });
 }
 function deleteRecipe(rid){
@@ -433,7 +633,8 @@ function macroRow(r){
     '<div class="macro"><b>'+esc(r.macros.cal)+'</b><span>cal</span></div>'+
     '<div class="macro"><b>'+esc(r.macros.protein)+'</b><span>protein</span></div>'+
     '<div class="macro"><b>'+esc(r.macros.carbs)+'</b><span>carbs</span></div>'+
-    '<div class="macro"><b>'+esc(r.macros.fat)+'</b><span>fat</span></div></div>';
+    '<div class="macro"><b>'+esc(r.macros.fat)+'</b><span>fat</span></div></div>'+
+    (r.macros.est?'<div class="macroest">estimated from ingredients</div>':'');
 }
 function toast(msg){
   var t=document.getElementById('toast');t.textContent=msg;t.classList.add('show');
@@ -807,6 +1008,8 @@ function viewList(){
     '<textarea id="add-ings" class="addarea" placeholder="Ingredients, one per line - e.g. 2 lb ground sirloin">'+esc(dIngs)+'</textarea>'+
     '<textarea id="add-steps" class="addarea" placeholder="Steps, one per line">'+esc(dSteps)+'</textarea>'+
     '<div class="addrow2"><input id="add-cal" placeholder="Cal (optional)"><input id="add-protein" placeholder="Protein"><input id="add-carbs" placeholder="Carbs"><input id="add-fat" placeholder="Fat"></div>'+
+    '<button class="btn" style="width:100%;margin-top:2px" onclick="fillMacroEstimates()">Estimate macros from ingredients</button>'+
+    '<p class="helper2">Leave them blank and they get estimated on save - marked as estimates, editable anytime.</p>'+
     '<input id="add-note" class="addfield" placeholder="Note (optional)" value="'+escAttr(d.note||'')+'">'+
     '<input id="add-source" class="addfield" placeholder="Source link (optional)" value="'+escAttr(d.source||'')+'">'+
     '<button class="btn primary" style="width:100%;margin-top:10px" onclick="saveNewRecipe()">Save to the family book</button>'+
@@ -961,7 +1164,7 @@ var HH_KEY=(location.search.match(/[?&]h=([a-z0-9-]+)/i)||[])[1]||null;
 if(!HH_KEY){try{HH_KEY=localStorage.getItem('hm-household');}catch(e){}}
 if(HH_KEY){try{localStorage.setItem('hm-household',HH_KEY);}catch(e){}}
 var lastRemoteJSON='',pushTimer=null,syncOnline=false,syncTried=false,clientStale=false;
-var APP_BUILD=11;
+var APP_BUILD=12;
 function canon(v){if(Array.isArray(v)){return '['+v.map(canon).join(',')+']';}if(v&&typeof v==='object'){return '{'+Object.keys(v).sort().map(function(k){return JSON.stringify(k)+':'+canon(v[k])}).join(',')+'}';}return JSON.stringify(v);}
 function cloudHeaders(){return {'apikey':SUPA_KEY,'Authorization':'Bearer '+SUPA_KEY,'Content-Type':'application/json'};}
 function setSyncUI(){
