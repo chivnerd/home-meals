@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>Home Meals</title>
-<!-- v4.0 -->
+<!-- v4.1 - tag filters + tag autocomplete -->
 <style>
   *{box-sizing:border-box}
   body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;background:#faf6ef;color:#3a322a;line-height:1.5;margin:0;padding:0 0 48px}
@@ -21,6 +21,13 @@
   .meta{color:#8a7d6d;font-size:14px}
   .tag{display:inline-block;background:#f3e0d5;color:#c96f4a;border-radius:999px;padding:2px 10px;font-size:12px;margin:6px 6px 0 0}
   .hh{display:inline-block;border-radius:999px;padding:2px 10px;font-size:12px;margin:6px 6px 0 0}
+  .tagfilter{display:flex;gap:8px;flex-wrap:wrap;margin-top:14px}
+  .tagchip{border:1px solid #eadfd2;background:#fffdf8;color:#3a322a;border-radius:999px;padding:6px 14px;font:inherit;font-size:13px;cursor:pointer}
+  .tagchip.on{background:#c96f4a;border-color:#c96f4a;color:#fffdf8;font-weight:bold}
+  .tagwrap{position:relative}
+  .tagsuggest{position:absolute;left:0;right:0;top:100%;background:#fffdf8;border:1px solid #eadfd2;border-radius:10px;box-shadow:0 4px 14px rgba(58,50,42,.12);z-index:20;overflow:hidden}
+  .tagsuggest button{display:block;width:100%;text-align:left;border:none;background:none;padding:10px 12px;font:inherit;font-size:14px;cursor:pointer;color:#3a322a}
+  .tagsuggest button:hover{background:#f3e0d5}
   .ok{background:#e6efe4;color:#5d8a5a}
   .no{background:#f3e0d5;color:#c96f4a}
   .macros{display:flex;gap:10px;margin-top:12px;flex-wrap:wrap}
@@ -282,6 +289,7 @@ function saveNewRecipe(){
   ['gluten-free','dairy-free','nightshade-free'].forEach(function(t){
     var cb=document.getElementById('tag-'+t);if(cb&&cb.checked)tags.push(t);
   });
+  parseTagsInput(gv('add-tags')).forEach(function(t){if(tags.indexOf(t)<0)tags.push(t);});
   var r={id:uniqueId(slugify(name)),name:name,serves:gv('add-serves'),time:gv('add-time'),tags:tags,
     ingredients:ings,steps:steps,note:gv('add-note')};
   var source=gv('add-source');if(source)r.source=source;
@@ -386,6 +394,38 @@ function householdRow(r){
   }).join('');
 }
 function tagRow(r){return r.tags.map(function(t){return '<span class="tag">'+esc(t)+'</span>';}).join('');}
+var DIET_TAGS=['gluten-free','dairy-free','nightshade-free'];
+function allTags(){
+  var seen={},out=[];
+  recipesState.forEach(function(r){(r.tags||[]).forEach(function(t){var k=String(t).toLowerCase().trim();if(k&&!seen[k]){seen[k]=1;out.push(k);}});});
+  return out.sort();
+}
+var tagFilter=null;
+function setTagFilter(t){tagFilter=t;render(true);}
+function parseTagsInput(v){
+  var tags=String(v||'').split(',').map(function(s){return s.trim().toLowerCase().replace(/\s+/g,' ');}).filter(Boolean);
+  return tags.filter(function(t,i){return tags.indexOf(t)===i;});
+}
+function tagSuggest(el){
+  var box=el.parentNode.querySelector('.tagsuggest');if(!box)return;
+  var v=el.value,i=v.lastIndexOf(',');
+  var frag=v.slice(i+1).trim().toLowerCase();
+  if(!frag){box.style.display='none';return;}
+  var entered=v.toLowerCase().split(',').map(function(s){return s.trim();});
+  var m=allTags().filter(function(t){return t.indexOf(frag)===0&&entered.indexOf(t)<0;}).slice(0,6);
+  if(!m.length){box.style.display='none';return;}
+  box.innerHTML=m.map(function(t){return '<button type="button" data-tag="'+escAttr(t)+'" onmousedown="pickTag(event)">'+esc(t)+'</button>';}).join('');
+  box.style.display='block';
+}
+function pickTag(e){
+  e.preventDefault();
+  var btn=e.currentTarget,box=btn.parentNode,el=box.parentNode.querySelector('input');
+  var v=el.value,i=v.lastIndexOf(',');
+  el.value=(i>=0?v.slice(0,i+1)+' ':'')+btn.getAttribute('data-tag')+', ';
+  box.style.display='none';
+  el.focus();
+}
+function hideTagSuggest(el){var box=el.parentNode.querySelector('.tagsuggest');if(box)setTimeout(function(){box.style.display='none';},200);}
 function macroRow(r){
   if(!r.macros)return '';
   return '<div class="macros">'+
@@ -484,6 +524,16 @@ function saveIngEdit(rid,idx,val){
 }
 function saveNoteEdit(rid,val){
   getAdj(rid).note=val.trim();saveAdj();toast('Note saved');
+}
+function saveTags(rid){
+  var el=document.getElementById('edit-tags');if(!el)return;
+  var tags=parseTagsInput(el.value);
+  toast('Saving...');
+  pullRecipesOnce().then(function(){
+    var r=getRecipe(rid);if(!r)return;
+    r.tags=tags;
+    saveRecipes();render(true);toast('Tags saved for everyone');
+  });
 }
 function resetAdj(rid){
   delete adjState[rid];saveAdj();render(true);toast('Back to the master recipe');
@@ -727,9 +777,16 @@ function resetSteps(rid){
 // ===== Views =====
 function viewList(){
   var h='<p class="sub">The family recipe book. '+recipesState.length+' recipe'+(recipesState.length===1?'':'s')+' and counting.</p>';
+  var bkTags=allTags();
+  if(tagFilter&&bkTags.indexOf(tagFilter)<0)tagFilter=null;
+  if(bkTags.length){
+    h+='<div class="tagfilter"><button class="tagchip'+(tagFilter?'':' on')+'" onclick="setTagFilter(null)">All</button>'+
+      bkTags.map(function(t){return '<button class="tagchip'+(tagFilter===t?' on':'')+'" onclick="setTagFilter(\''+escAttr(t)+'\')">'+esc(t)+'</button>';}).join('')+'</div>';
+  }
   var d=addDraft||{};
   var dIngs=(d.ingredients||[]).map(function(l){return typeof l==='string'?l:ingText(l,1);}).join('\n');
   var dSteps=(d.steps||[]).join('\n');
+  var dTags=(d.tags||[]).filter(function(t){return DIET_TAGS.indexOf(t)<0;}).join(', ');
   h+='<div class="card addcard">'+
     '<h3 style="margin-top:0">Add a recipe</h3>'+
     '<div class="addrow"><input id="add-url" placeholder="Paste a recipe link - we strip the life story" value="'+escAttr(d.source||'')+'">'+
@@ -744,6 +801,7 @@ function viewList(){
       }).join('')+
     '</div>'+
     '<p class="helper2">Dietary tags matter - untagged recipes show as not Erin-safe. Check what applies.</p>'+
+    '<div class="tagwrap"><input id="add-tags" class="addfield" placeholder="Meal tags (dinner, baking...) - commas between, matches pop up as you type" value="'+escAttr(dTags)+'" autocomplete="off" oninput="tagSuggest(this)" onblur="hideTagSuggest(this)"><div class="tagsuggest" style="display:none"></div></div>'+
     '<textarea id="add-ings" class="addarea" placeholder="Ingredients, one per line - e.g. 2 lb ground sirloin">'+esc(dIngs)+'</textarea>'+
     '<textarea id="add-steps" class="addarea" placeholder="Steps, one per line">'+esc(dSteps)+'</textarea>'+
     '<div class="addrow2"><input id="add-cal" placeholder="Cal (optional)"><input id="add-protein" placeholder="Protein"><input id="add-carbs" placeholder="Carbs"><input id="add-fat" placeholder="Fat"></div>'+
@@ -753,7 +811,9 @@ function viewList(){
     '<p class="helper2" style="text-align:center">Shows up on both phones - no Instinct in the middle.</p>'+
     '<p class="fallback"><a href="'+smsHref(IMPORT_NUMBER,IMPORT_PREFIX)+'">Rather text a link to Instinct?</a></p>'+
   '</div>';
-  recipesState.forEach(function(r){
+  var shown=tagFilter?recipesState.filter(function(r){return (r.tags||[]).indexOf(tagFilter)>=0;}):recipesState;
+  if(!shown.length){h+='<div class="empty">Nothing tagged '+esc(tagFilter)+' yet.</div>';}
+  shown.forEach(function(r){
     h+='<a class="cardlink" href="#/recipe/'+r.id+'"><div class="card">'+
       '<h2>'+esc(r.name)+'</h2>'+
       '<div class="meta">Serves '+esc(r.serves)+' &middot; '+esc(r.time)+'</div>'+
@@ -825,7 +885,9 @@ function viewRecipe(id){
 
   // Note
   if(editing){
-    h+='<div class="note"><textarea onchange="saveNoteEdit(\''+r.id+'\',this.value)">'+esc(note||'')+'</textarea></div>'+
+    h+='<h3>Tags</h3><div class="tagwrap"><input id="edit-tags" class="ingedit" value="'+escAttr((r.tags||[]).join(', '))+'" autocomplete="off" oninput="tagSuggest(this)" onblur="hideTagSuggest(this)"><div class="tagsuggest" style="display:none"></div></div>'+
+      '<div style="margin-top:4px"><button class="btn primary" onclick="saveTags(\''+r.id+'\')">Save tags for everyone</button></div>'+
+      '<div class="note"><textarea onchange="saveNoteEdit(\''+r.id+'\',this.value)">'+esc(note||'')+'</textarea></div>'+
       '<div style="margin-top:14px;text-align:center"><button class="btn" style="color:#b03a2e;border-color:#e5b8b2" onclick="deleteRecipe(\''+r.id+'\')">Delete this recipe</button></div>';
   }else if(note){
     h+='<div class="note">'+esc(note)+'</div>';
