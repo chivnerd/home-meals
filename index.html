@@ -191,7 +191,7 @@ function pullRecipesOnce(){
 }
 
 // ===== Add a recipe (link import + manual entry) =====
-var addDraft=null,addBusy=false;
+var addDraft=null,addBusy=false,addOpen=false;
 function isoToMin(s){
   var m=/PT(?:(\d+)H)?(?:(\d+)M)?/i.exec(s||'');if(!m)return '';
   var mins=(+m[1]||0)*60+(+m[2]||0);if(!mins)return '';
@@ -254,6 +254,7 @@ function extractRecipe(html){
   });
   return {name:String(node.name||'').trim(),serves:serves,time:time,ingredients:ings,steps:steps};
 }
+function openAdd(){addOpen=true;render(true);}
 function grabLink(){
   var el=document.getElementById('add-url');
   var url=(el.value||'').trim();
@@ -299,7 +300,7 @@ function saveNewRecipe(){
   pullRecipesOnce().then(function(){
     if(getRecipe(r.id))r.id=uniqueId(r.id);
     recipesState.push(r);
-    addDraft=null;
+    addDraft=null;addOpen=false;
     saveRecipes();
     location.hash='#/recipe/'+r.id;
     toast('Added to the family book');
@@ -787,6 +788,7 @@ function viewList(){
   var dIngs=(d.ingredients||[]).map(function(l){return typeof l==='string'?l:ingText(l,1);}).join('\n');
   var dSteps=(d.steps||[]).join('\n');
   var dTags=(d.tags||[]).filter(function(t){return DIET_TAGS.indexOf(t)<0;}).join(', ');
+  if(addOpen||addDraft){
   h+='<div class="card addcard">'+
     '<h3 style="margin-top:0">Add a recipe</h3>'+
     '<div class="addrow"><input id="add-url" placeholder="Paste a recipe link - we strip the life story" value="'+escAttr(d.source||'')+'">'+
@@ -811,6 +813,9 @@ function viewList(){
     '<p class="helper2" style="text-align:center">Shows up on both phones - no Instinct in the middle.</p>'+
     '<p class="fallback"><a href="'+smsHref(IMPORT_NUMBER,IMPORT_PREFIX)+'">Rather text a link to Instinct?</a></p>'+
   '</div>';
+  }else{
+    h+='<button class="btn primary" style="width:100%;padding:14px;font-size:16px" onclick="openAdd()">+ Add a recipe</button>';
+  }
   var shown=tagFilter?recipesState.filter(function(r){return (r.tags||[]).indexOf(tagFilter)>=0;}):recipesState;
   if(!shown.length){h+='<div class="empty">Nothing tagged '+esc(tagFilter)+' yet.</div>';}
   shown.forEach(function(r){
