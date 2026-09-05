@@ -821,7 +821,7 @@ function viewList(){
   shown.forEach(function(r){
     h+='<a class="cardlink" href="#/recipe/'+r.id+'"><div class="card">'+
       '<h2>'+esc(r.name)+'</h2>'+
-      '<div class="meta">Serves '+esc(r.serves)+' &middot; '+esc(r.time)+'</div>'+
+      '<div class="meta">'+[r.serves?('Serves '+esc(r.serves)):'',esc(r.time||'')].filter(Boolean).join(' &middot; ')+'</div>'+
       '<div>'+tagRow(r)+'</div>'+
       '<div>'+householdRow(r)+'</div>'+
       (getAvg(r.id)?'<div><span class="avgchip">&#9733; '+getAvg(r.id)+'</span></div>':'')+
