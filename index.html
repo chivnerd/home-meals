@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>Home Meals</title>
-<!-- v4.6 - fix sync clobbering: pushes only send locally-changed keys, pulls never wipe unsent local changes (comments persisted reliably) -->
+<!-- v4.7 - seed-on-error guard: only seed the blob on a confirmed empty 200 (transient Supabase errors no longer clobber the book); background sync renders defer while a field has typed input; household slug rotated | v4.6 - fix sync clobbering: pushes only send locally-changed keys, pulls never wipe unsent local changes -->
 <style>
   *{box-sizing:border-box}
   body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;background:#faf6ef;color:#3a322a;line-height:1.5;margin:0;padding:0 0 48px}
@@ -1164,7 +1164,7 @@ var HH_KEY=(location.search.match(/[?&]h=([a-z0-9-]+)/i)||[])[1]||null;
 if(!HH_KEY){try{HH_KEY=localStorage.getItem('hm-household');}catch(e){}}
 if(HH_KEY){try{localStorage.setItem('hm-household',HH_KEY);}catch(e){}}
 var lastRemoteJSON='',pushTimer=null,syncOnline=false,syncTried=false,clientStale=false;
-var APP_BUILD=13;
+var APP_BUILD=14;
 function canon(v){if(Array.isArray(v)){return '['+v.map(canon).join(',')+']';}if(v&&typeof v==='object'){return '{'+Object.keys(v).sort().map(function(k){return JSON.stringify(k)+':'+canon(v[k])}).join(',')+'}';}return JSON.stringify(v);}
 function cloudHeaders(){return {'apikey':SUPA_KEY,'Authorization':'Bearer '+SUPA_KEY,'Content-Type':'application/json'};}
 function setSyncUI(){
@@ -1222,10 +1222,27 @@ function cloudPush(){
     .catch(function(){syncOnline=false;setSyncUI();});
   },400);
 }
+// Background re-render guard: never wipe user-typed input. Fields get data-dirty on input; while any dirty
+// field exists, poll-driven renders are deferred and flush on focusout (or the next poll once fields are saved/cleared).
+var pendingRender=false;
+function liveInput(){
+  var app=document.getElementById('app');if(!app)return false;
+  return !!app.querySelector('input[data-dirty],textarea[data-dirty]');
+}
+function requestRender(){if(liveInput()){pendingRender=true;return;}pendingRender=false;render(true);}
+document.addEventListener('input',function(e){
+  var t=e.target;
+  if(t&&/^(INPUT|TEXTAREA)$/.test(t.tagName)&&String(t.type).toLowerCase()!=='checkbox'){
+    if(t.value&&t.value.trim())t.setAttribute('data-dirty','1');else t.removeAttribute('data-dirty');
+  }
+});
+document.addEventListener('focusout',function(){
+  if(pendingRender)setTimeout(function(){if(pendingRender&&!liveInput()){pendingRender=false;render(true);}},80);
+});
 function cloudPull(seedIfEmpty){
   if(!HH_KEY)return;
   fetch(SUPA_URL+'/rest/v1/household_state?slug=eq.'+encodeURIComponent(HH_KEY)+'&select=state,updated_at',{headers:cloudHeaders()})
-  .then(function(r){return r.ok?r.json():[];})
+  .then(function(r){if(!r.ok)throw new Error('http '+r.status);return r.json();})
   .then(function(rows){
     syncTried=true;syncOnline=true;
     if(!rows||!rows.length){if(seedIfEmpty){['recipes','ratings','comments','shop','custom'].forEach(function(k){dirtyKeys[k]=true;});saveDirty();cloudPush();}setSyncUI();return;}
@@ -1246,7 +1263,7 @@ function cloudPull(seedIfEmpty){
         if(b.custom&&!dirtyKeys.custom){customState=b.custom.filter(function(c){return !isStepDump(c);});localStorage.setItem(LS_CUSTOM,JSON.stringify(customState));}
         if(b.recipes&&b.recipes.length&&!dirtyKeys.recipes){recipesState=b.recipes;localStorage.setItem(LS_RECIPES,JSON.stringify(recipesState));}
       }finally{cloudPush.off=false;}
-      render(true);
+      requestRender();
     }
     setSyncUI();
     if(Object.keys(dirtyKeys).length)cloudPush();
