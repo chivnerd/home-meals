@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>Home Meals</title>
-<!-- v4.4 - delete button moved to bottom of recipe page (below comments), always visible -->
+<!-- v4.6 - fix sync clobbering: pushes only send locally-changed keys, pulls never wipe unsent local changes (comments persisted reliably) -->
 <style>
   *{box-sizing:border-box}
   body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;background:#faf6ef;color:#3a322a;line-height:1.5;margin:0;padding:0 0 48px}
@@ -164,7 +164,7 @@ function loadRecipes(){
   try{var s=JSON.parse(localStorage.getItem(LS_RECIPES));if(s&&s.length)return s;}catch(e){}
   return RECIPES_SEED.slice();
 }
-function saveRecipes(){localStorage.setItem(LS_RECIPES,JSON.stringify(recipesState));cloudPush();}
+function saveRecipes(){localStorage.setItem(LS_RECIPES,JSON.stringify(recipesState));markDirty('recipes');cloudPush();}
 var recipesState=loadRecipes();
 function slugify(name){var s=(name||'').toLowerCase().replace(/[^a-z0-9]+/g,'-').replace(/^-+|-+$/g,'');return s||('recipe-'+Date.now());}
 function uniqueId(base){var id=base,n=2;while(getRecipe(id)){id=base+'-'+(n++);}return id;}
@@ -538,7 +538,7 @@ function loadState(){
   }catch(e){}
   return {recipes:[],checked:{}};
 }
-function saveState(s){localStorage.setItem(LS_KEY,JSON.stringify(s));cloudPush();}
+function saveState(s){localStorage.setItem(LS_KEY,JSON.stringify(s));markDirty('shop');cloudPush();}
 var state=loadState();
 
 var LS_COOK='hm-cooking-v1';
@@ -564,7 +564,7 @@ function loadComments(){
   try{var s=JSON.parse(localStorage.getItem(LS_COMMENTS));if(s&&typeof s==='object')return s;}catch(e){}
   return {};
 }
-function saveComments(){localStorage.setItem(LS_COMMENTS,JSON.stringify(commentState));cloudPush();}
+function saveComments(){localStorage.setItem(LS_COMMENTS,JSON.stringify(commentState));markDirty('comments');cloudPush();}
 var commentState=loadComments();
 
 var LS_RATINGS='hm-ratings-v1';
@@ -572,7 +572,7 @@ function loadRatings(){
   try{var s=JSON.parse(localStorage.getItem(LS_RATINGS));if(s&&typeof s==='object')return s;}catch(e){}
   return {};
 }
-function saveRatings(){localStorage.setItem(LS_RATINGS,JSON.stringify(ratingsState));cloudPush();}
+function saveRatings(){localStorage.setItem(LS_RATINGS,JSON.stringify(ratingsState));markDirty('ratings');cloudPush();}
 var ratingsState=loadRatings();
 function getAvg(rid){
   var r=ratingsState[rid];if(!r)return null;
@@ -775,11 +775,11 @@ function addComment(rid){
   var name=nameEl.value.trim()||'Anonymous';
   if(!commentState[rid])commentState[rid]=[];
   commentState[rid].push({name:name,text:text,ts:Date.now()});
-  saveComments();render(true);toast('Note added');
+  commentRids[rid]=true;saveComments();render(true);toast('Note added');
 }
 function delComment(rid,idx){
   if(!commentState[rid])return;
-  commentState[rid].splice(idx,1);saveComments();render(true);
+  commentState[rid].splice(idx,1);commentRids[rid]=true;saveComments();render(true);
 }
 function sendComment(rid,idx){
   var r=getRecipe(rid);var c=commentState[rid][idx];
@@ -802,7 +802,7 @@ function loadCustom(){
   }catch(e){}
   return [];
 }
-function saveCustom(){localStorage.setItem(LS_CUSTOM,JSON.stringify(customState));cloudPush();}
+function saveCustom(){localStorage.setItem(LS_CUSTOM,JSON.stringify(customState));markDirty('custom');cloudPush();}
 var customState=loadCustom();
 function addCustomItem(text){
   text=(text||'').replace(/\s+/g,' ').trim();
@@ -1164,7 +1164,7 @@ var HH_KEY=(location.search.match(/[?&]h=([a-z0-9-]+)/i)||[])[1]||null;
 if(!HH_KEY){try{HH_KEY=localStorage.getItem('hm-household');}catch(e){}}
 if(HH_KEY){try{localStorage.setItem('hm-household',HH_KEY);}catch(e){}}
 var lastRemoteJSON='',pushTimer=null,syncOnline=false,syncTried=false,clientStale=false;
-var APP_BUILD=12;
+var APP_BUILD=13;
 function canon(v){if(Array.isArray(v)){return '['+v.map(canon).join(',')+']';}if(v&&typeof v==='object'){return '{'+Object.keys(v).sort().map(function(k){return JSON.stringify(k)+':'+canon(v[k])}).join(',')+'}';}return JSON.stringify(v);}
 function cloudHeaders(){return {'apikey':SUPA_KEY,'Authorization':'Bearer '+SUPA_KEY,'Content-Type':'application/json'};}
 function setSyncUI(){
@@ -1175,19 +1175,49 @@ function setSyncUI(){
   el.textContent=syncOnline?('Synced across the family - '+HH_KEY):'Sync offline - changes stay on this phone';
   el.className='syncstatus'+(syncOnline?' ok':'');
 }
+var LS_DIRTY='hm-dirty-v1';
+var dirtyKeys={},commentRids={};
+function loadDirty(){try{var s=JSON.parse(localStorage.getItem(LS_DIRTY));if(s&&s.keys){dirtyKeys=s.keys;commentRids=s.rids||{};}}catch(e){}}
+function saveDirty(){try{localStorage.setItem(LS_DIRTY,JSON.stringify({keys:dirtyKeys,rids:commentRids}));}catch(e){}}
+function markDirty(k){dirtyKeys[k]=true;saveDirty();}
+loadDirty();
 function cloudPush(){
   if(!HH_KEY||cloudPush.off||clientStale)return;
   clearTimeout(pushTimer);
   pushTimer=setTimeout(function(){
-    var blob={v:APP_BUILD,recipes:recipesState,ratings:ratingsState,comments:commentState,shop:state,custom:customState};
+    var keys=Object.keys(dirtyKeys);
+    if(!keys.length)return;
+    var pushedRids=Object.keys(commentRids),pushedCanon={};
+    var blob={recipes:recipesState,ratings:ratingsState,comments:commentState,shop:state,custom:customState};
     var now=new Date().toISOString();
     fetch(SUPA_URL+'/rest/v1/household_state?slug=eq.'+encodeURIComponent(HH_KEY)+'&select=state',{headers:cloudHeaders()})
     .then(function(r){return r.ok?r.json():[];})
     .then(function(rows){
-      var merged=(rows&&rows.length&&rows[0].state)||{};
-      Object.keys(blob).forEach(function(k){merged[k]=blob[k];});
+      var remote=(rows&&rows.length&&rows[0].state)||{};
+      var merged={};
+      Object.keys(remote).forEach(function(k){merged[k]=remote[k];});
+      keys.forEach(function(k){
+        if(k==='comments'){
+          var mc={},rc=remote.comments||{};
+          Object.keys(rc).forEach(function(rid){mc[rid]=rc[rid];});
+          pushedRids.forEach(function(rid){mc[rid]=commentState[rid]||[];pushedCanon[rid]=canon(mc[rid]);});
+          merged.comments=mc;
+        }else{
+          merged[k]=blob[k];
+        }
+      });
+      merged.v=APP_BUILD;
       return fetch(SUPA_URL+'/rest/v1/household_state',{method:'POST',headers:Object.assign(cloudHeaders(),{'Prefer':'resolution=merge-duplicates'}),body:JSON.stringify({slug:HH_KEY,state:merged,updated_at:now})})
-      .then(function(r2){if(r2.ok){lastRemoteJSON=canon(merged);syncOnline=true;}else{syncOnline=false;}setSyncUI();});
+      .then(function(r2){
+        if(r2.ok){
+          keys.forEach(function(k){if(k!=='comments')delete dirtyKeys[k];});
+          pushedRids.forEach(function(rid){if(canon(commentState[rid]||[])===pushedCanon[rid])delete commentRids[rid];});
+          if(!Object.keys(commentRids).length)delete dirtyKeys['comments'];
+          saveDirty();
+          lastRemoteJSON=canon(merged);syncOnline=true;
+        }else{syncOnline=false;}
+        setSyncUI();
+      });
     })
     .catch(function(){syncOnline=false;setSyncUI();});
   },400);
@@ -1198,7 +1228,7 @@ function cloudPull(seedIfEmpty){
   .then(function(r){return r.ok?r.json():[];})
   .then(function(rows){
     syncTried=true;syncOnline=true;
-    if(!rows||!rows.length){if(seedIfEmpty)cloudPush();setSyncUI();return;}
+    if(!rows||!rows.length){if(seedIfEmpty){['recipes','ratings','comments','shop','custom'].forEach(function(k){dirtyKeys[k]=true;});saveDirty();cloudPush();}setSyncUI();return;}
     var row=rows[0];var rowJSON=canon(row.state||{});
     var remoteV=(row.state&&row.state.v)||0;
     if(remoteV>APP_BUILD){
@@ -1210,15 +1240,16 @@ function cloudPull(seedIfEmpty){
       lastRemoteJSON=rowJSON;var b=row.state||{};
       cloudPush.off=true;
       try{
-        if(b.ratings){ratingsState=b.ratings;localStorage.setItem(LS_RATINGS,JSON.stringify(ratingsState));}
-        if(b.comments){commentState=b.comments;localStorage.setItem(LS_COMMENTS,JSON.stringify(commentState));}
-        if(b.shop){state=b.shop;localStorage.setItem(LS_KEY,JSON.stringify(state));updateCartBadge();}
-        if(b.custom){customState=b.custom.filter(function(c){return !isStepDump(c);});localStorage.setItem(LS_CUSTOM,JSON.stringify(customState));}
-        if(b.recipes&&b.recipes.length){recipesState=b.recipes;localStorage.setItem(LS_RECIPES,JSON.stringify(recipesState));}
+        if(b.ratings&&!dirtyKeys.ratings){ratingsState=b.ratings;localStorage.setItem(LS_RATINGS,JSON.stringify(ratingsState));}
+        if(b.comments&&!dirtyKeys.comments){commentState=b.comments;localStorage.setItem(LS_COMMENTS,JSON.stringify(commentState));}
+        if(b.shop&&!dirtyKeys.shop){state=b.shop;localStorage.setItem(LS_KEY,JSON.stringify(state));updateCartBadge();}
+        if(b.custom&&!dirtyKeys.custom){customState=b.custom.filter(function(c){return !isStepDump(c);});localStorage.setItem(LS_CUSTOM,JSON.stringify(customState));}
+        if(b.recipes&&b.recipes.length&&!dirtyKeys.recipes){recipesState=b.recipes;localStorage.setItem(LS_RECIPES,JSON.stringify(recipesState));}
       }finally{cloudPush.off=false;}
       render(true);
     }
     setSyncUI();
+    if(Object.keys(dirtyKeys).length)cloudPush();
   })
   .catch(function(){syncTried=true;syncOnline=false;setSyncUI();});
 }
