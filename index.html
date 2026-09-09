@@ -7,7 +7,7 @@
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,600;9..144,700&family=Newsreader:ital,opsz,wght@0,6..72,400;0,6..72,500;0,6..72,600;1,6..72,400&display=swap" rel="stylesheet">
 <title>Home Meals</title>
-<!-- v4.9 - declutter home header: tagline hidden, filters single swipeable row, slimmer add button | v4.8 - Sunday Cookbook reskin: Fraunces/Newsreader type, editorial hairlines, oxblood/olive palette; CSS + fonts only, zero functional change | v4.7 - seed-on-error guard: only seed the blob on a confirmed empty 200 (transient Supabase errors no longer clobber the book); background sync renders defer while a field has typed input; household slug rotated | v4.6 - fix sync clobbering: pushes only send locally-changed keys, pulls never wipe unsent local changes -->
+<!-- v4.10 - edge fades on the filter chip swiper | v4.9 - declutter home header: tagline hidden, filters single swipeable row, slimmer add button | v4.8 - Sunday Cookbook reskin: Fraunces/Newsreader type, editorial hairlines, oxblood/olive palette; CSS + fonts only, zero functional change | v4.7 - seed-on-error guard: only seed the blob on a confirmed empty 200 (transient Supabase errors no longer clobber the book); background sync renders defer while a field has typed input; household slug rotated | v4.6 - fix sync clobbering: pushes only send locally-changed keys, pulls never wipe unsent local changes -->
 <style>
   *{box-sizing:border-box}
   body{font-family:"Newsreader",Georgia,"Times New Roman",serif;background:#F7F2E9;color:#221C14;line-height:1.5;margin:0;padding:0 0 48px;-webkit-font-smoothing:antialiased}
@@ -24,7 +24,7 @@
   .meta{color:#6E6558;font-size:14px;font-style:italic}
   .tag{display:inline-block;background:none;color:#8A3524;border-radius:0;padding:0;font-family:"Newsreader",Georgia,serif;font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.16em;margin:8px 12px 0 0}
   .hh{display:inline-block;border-radius:999px;padding:3px 10px;font-family:"Newsreader",Georgia,serif;font-size:11px;font-weight:600;letter-spacing:.08em;text-transform:uppercase;margin:6px 6px 0 0}
-  .tagfilter{display:flex;gap:16px;flex-wrap:nowrap;overflow-x:auto;margin-top:12px;padding-bottom:6px;-webkit-overflow-scrolling:touch}
+  .tagfilter{display:flex;gap:16px;flex-wrap:nowrap;overflow-x:auto;margin:12px -22px 0;padding:0 22px 6px;-webkit-overflow-scrolling:touch;-webkit-mask-image:linear-gradient(to right,transparent,#000 22px,#000 calc(100% - 34px),transparent);mask-image:linear-gradient(to right,transparent,#000 22px,#000 calc(100% - 34px),transparent)}
   .tagfilter::-webkit-scrollbar{display:none}
   .tagchip{border:none;border-bottom:2px solid transparent;background:none;color:#6E6558;border-radius:0;padding:5px 1px 3px;font-family:"Newsreader",Georgia,serif;font-size:11px;font-weight:600;letter-spacing:.1em;text-transform:uppercase;cursor:pointer;white-space:nowrap;flex-shrink:0}
   .tagchip.on{color:#221C14;border-bottom:2px solid #8A3524;font-weight:600}
@@ -1173,7 +1173,7 @@ var HH_KEY=(location.search.match(/[?&]h=([a-z0-9-]+)/i)||[])[1]||null;
 if(!HH_KEY){try{HH_KEY=localStorage.getItem('hm-household');}catch(e){}}
 if(HH_KEY){try{localStorage.setItem('hm-household',HH_KEY);}catch(e){}}
 var lastRemoteJSON='',pushTimer=null,syncOnline=false,syncTried=false,clientStale=false;
-var APP_BUILD=16;
+var APP_BUILD=17;
 function canon(v){if(Array.isArray(v)){return '['+v.map(canon).join(',')+']';}if(v&&typeof v==='object'){return '{'+Object.keys(v).sort().map(function(k){return JSON.stringify(k)+':'+canon(v[k])}).join(',')+'}';}return JSON.stringify(v);}
 function cloudHeaders(){return {'apikey':SUPA_KEY,'Authorization':'Bearer '+SUPA_KEY,'Content-Type':'application/json'};}
 function setSyncUI(){
