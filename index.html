@@ -7,7 +7,7 @@
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,600;9..144,700&family=Newsreader:ital,opsz,wght@0,6..72,400;0,6..72,500;0,6..72,600;1,6..72,400&display=swap" rel="stylesheet">
 <title>Home Meals</title>
-<!-- v4.8 - Sunday Cookbook reskin: Fraunces/Newsreader type, editorial hairlines, oxblood/olive palette; CSS + fonts only, zero functional change | v4.7 - seed-on-error guard: only seed the blob on a confirmed empty 200 (transient Supabase errors no longer clobber the book); background sync renders defer while a field has typed input; household slug rotated | v4.6 - fix sync clobbering: pushes only send locally-changed keys, pulls never wipe unsent local changes -->
+<!-- v4.9 - declutter home header: tagline hidden, filters single swipeable row, slimmer add button | v4.8 - Sunday Cookbook reskin: Fraunces/Newsreader type, editorial hairlines, oxblood/olive palette; CSS + fonts only, zero functional change | v4.7 - seed-on-error guard: only seed the blob on a confirmed empty 200 (transient Supabase errors no longer clobber the book); background sync renders defer while a field has typed input; household slug rotated | v4.6 - fix sync clobbering: pushes only send locally-changed keys, pulls never wipe unsent local changes -->
 <style>
   *{box-sizing:border-box}
   body{font-family:"Newsreader",Georgia,"Times New Roman",serif;background:#F7F2E9;color:#221C14;line-height:1.5;margin:0;padding:0 0 48px;-webkit-font-smoothing:antialiased}
@@ -16,7 +16,7 @@
   .topbar a.brand{font-family:"Fraunces",Georgia,"Times New Roman",serif;font-size:21px;color:#221C14;text-decoration:none;font-weight:700;letter-spacing:-.01em}
   .cartbtn{background:none;color:#8A3524;border:none;border-bottom:1px solid #8A3524;border-radius:0;padding:7px 1px 3px;font-family:"Newsreader",Georgia,serif;font-size:12px;font-weight:600;letter-spacing:.14em;text-transform:uppercase;text-decoration:none;display:inline-block}
   h1{font-family:"Fraunces",Georgia,serif;font-size:32px;font-weight:600;letter-spacing:-.02em;line-height:1.05;margin:22px 0 2px}
-  .sub{color:#6E6558;font-size:14.5px;font-style:italic;margin:0 0 8px}
+  .sub{display:none}
   .card{background:none;border:none;border-bottom:1px solid #DCD3C2;border-radius:0;padding:18px 2px;margin-top:0}
   a.cardlink{text-decoration:none;color:inherit;display:block}
   h2{font-family:"Fraunces",Georgia,serif;font-size:22px;font-weight:600;letter-spacing:-.015em;line-height:1.15;margin:0 0 4px}
@@ -24,8 +24,9 @@
   .meta{color:#6E6558;font-size:14px;font-style:italic}
   .tag{display:inline-block;background:none;color:#8A3524;border-radius:0;padding:0;font-family:"Newsreader",Georgia,serif;font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.16em;margin:8px 12px 0 0}
   .hh{display:inline-block;border-radius:999px;padding:3px 10px;font-family:"Newsreader",Georgia,serif;font-size:11px;font-weight:600;letter-spacing:.08em;text-transform:uppercase;margin:6px 6px 0 0}
-  .tagfilter{display:flex;gap:15px;flex-wrap:wrap;margin-top:14px}
-  .tagchip{border:none;border-bottom:2px solid transparent;background:none;color:#6E6558;border-radius:0;padding:5px 1px 4px;font-family:"Newsreader",Georgia,serif;font-size:12px;font-weight:600;letter-spacing:.12em;text-transform:uppercase;cursor:pointer}
+  .tagfilter{display:flex;gap:16px;flex-wrap:nowrap;overflow-x:auto;margin-top:12px;padding-bottom:6px;-webkit-overflow-scrolling:touch}
+  .tagfilter::-webkit-scrollbar{display:none}
+  .tagchip{border:none;border-bottom:2px solid transparent;background:none;color:#6E6558;border-radius:0;padding:5px 1px 3px;font-family:"Newsreader",Georgia,serif;font-size:11px;font-weight:600;letter-spacing:.1em;text-transform:uppercase;cursor:pointer;white-space:nowrap;flex-shrink:0}
   .tagchip.on{color:#221C14;border-bottom:2px solid #8A3524;font-weight:600}
   .tagwrap{position:relative}
   .tagsuggest{position:absolute;left:0;right:0;top:100%;background:#FBF8F1;border:1px solid #221C14;border-radius:3px;box-shadow:0 4px 14px rgba(34,28,20,.14);z-index:20;overflow:hidden}
@@ -46,6 +47,7 @@
   .note textarea{width:100%;border:none;background:transparent;color:inherit;font:inherit;resize:vertical;min-height:44px}
   .btn{display:inline-block;border-radius:3px;padding:11px 15px;font-family:"Newsreader",Georgia,serif;font-size:12px;font-weight:600;letter-spacing:.12em;text-transform:uppercase;border:1.5px solid #221C14;background:none;color:#221C14;text-decoration:none;margin:8px 8px 0 0;cursor:pointer}
   .btn.primary{background:#221C14;border-color:#221C14;color:#F7F2E9}
+  .btn.addopen{display:block;width:100%;padding:12px;font-size:12px;margin-top:14px;text-align:center}
   .btn.inlist{background:#EBEDE3;border-color:#5C6647;color:#46523A}
   .back{color:#8A3524;text-decoration:none;font-family:"Newsreader",Georgia,serif;font-size:11.5px;font-weight:600;letter-spacing:.16em;text-transform:uppercase;display:inline-block;margin-top:18px}
   .shopitem{display:flex;align-items:flex-start;gap:10px;padding:9px 0;border-bottom:1px solid #E4DCCB}
@@ -1024,7 +1026,7 @@ function viewList(){
     '<p class="fallback"><a href="'+smsHref(IMPORT_NUMBER,IMPORT_PREFIX)+'">Rather text a link to Instinct?</a></p>'+
   '</div>';
   }else{
-    h+='<button class="btn primary" style="width:100%;padding:14px;font-size:16px" onclick="openAdd()">+ Add a recipe</button>';
+    h+='<button class="btn primary addopen" onclick="openAdd()">+ Add a recipe</button>';
   }
   var shown=tagFilter?recipesState.filter(function(r){return (r.tags||[]).indexOf(tagFilter)>=0;}):recipesState;
   if(!shown.length){h+='<div class="empty">Nothing tagged '+esc(tagFilter)+' yet.</div>';}
@@ -1171,7 +1173,7 @@ var HH_KEY=(location.search.match(/[?&]h=([a-z0-9-]+)/i)||[])[1]||null;
 if(!HH_KEY){try{HH_KEY=localStorage.getItem('hm-household');}catch(e){}}
 if(HH_KEY){try{localStorage.setItem('hm-household',HH_KEY);}catch(e){}}
 var lastRemoteJSON='',pushTimer=null,syncOnline=false,syncTried=false,clientStale=false;
-var APP_BUILD=15;
+var APP_BUILD=16;
 function canon(v){if(Array.isArray(v)){return '['+v.map(canon).join(',')+']';}if(v&&typeof v==='object'){return '{'+Object.keys(v).sort().map(function(k){return JSON.stringify(k)+':'+canon(v[k])}).join(',')+'}';}return JSON.stringify(v);}
 function cloudHeaders(){return {'apikey':SUPA_KEY,'Authorization':'Bearer '+SUPA_KEY,'Content-Type':'application/json'};}
 function setSyncUI(){
