@@ -7,7 +7,7 @@
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,600;9..144,700&family=Newsreader:ital,opsz,wght@0,6..72,400;0,6..72,500;0,6..72,600;1,6..72,400&display=swap" rel="stylesheet">
 <title>Home Meals</title>
-<!-- v4.10 - edge fades on the filter chip swiper | v4.9 - declutter home header: tagline hidden, filters single swipeable row, slimmer add button | v4.8 - Sunday Cookbook reskin: Fraunces/Newsreader type, editorial hairlines, oxblood/olive palette; CSS + fonts only, zero functional change | v4.7 - seed-on-error guard: only seed the blob on a confirmed empty 200 (transient Supabase errors no longer clobber the book); background sync renders defer while a field has typed input; household slug rotated | v4.6 - fix sync clobbering: pushes only send locally-changed keys, pulls never wipe unsent local changes -->
+<!-- v4.11 - flexible recipe scaling: - / + stepper in quarter steps (0.25x to 4x), fraction glyphs to the eighth, sub-1 quantities stay singular | v4.10 - edge fades on the filter chip swiper | v4.9 - declutter home header: tagline hidden, filters single swipeable row, slimmer add button | v4.8 - Sunday Cookbook reskin: Fraunces/Newsreader type, editorial hairlines, oxblood/olive palette; CSS + fonts only, zero functional change | v4.7 - seed-on-error guard: only seed the blob on a confirmed empty 200 (transient Supabase errors no longer clobber the book); background sync renders defer while a field has typed input; household slug rotated | v4.6 - fix sync clobbering: pushes only send locally-changed keys, pulls never wipe unsent local changes -->
 <style>
   *{box-sizing:border-box}
   body{font-family:"Newsreader",Georgia,"Times New Roman",serif;background:#F7F2E9;color:#221C14;line-height:1.5;margin:0;padding:0 0 48px;-webkit-font-smoothing:antialiased}
@@ -72,9 +72,11 @@
   .customadd{display:flex;gap:10px;margin-top:14px;align-items:flex-end}
   .customadd input{flex:1;font:inherit;font-size:16px;padding:10px 2px;border:none;border-bottom:1.5px solid #221C14;border-radius:0;background:transparent;min-height:44px;color:#221C14}
   .customadd .btn{margin:0;min-height:44px;padding:11px 18px}
-  .scaler{display:inline-flex;border:none;overflow:visible;margin-left:8px;vertical-align:middle}
+  .scaler{display:inline-flex;border:none;overflow:visible;margin-left:8px;vertical-align:middle;align-items:center}
   .scaler button{border:none;background:none;padding:6px 3px;margin-left:12px;font-family:"Newsreader",Georgia,serif;font-size:12px;font-weight:600;letter-spacing:.12em;text-transform:uppercase;color:#6E6558;cursor:pointer;border-bottom:1.5px solid transparent}
   .scaler button.on{color:#8A3524;border-bottom:1.5px solid #8A3524;font-weight:600}
+  .scaler button.step{font-size:17px;line-height:1;padding:10px 12px;margin-left:6px;min-width:44px;min-height:44px}
+  .scaler button.cur{margin-left:6px;min-width:44px;min-height:44px;padding:10px 6px}
   .ingedit{width:100%;font:inherit;font-size:16px;padding:9px 2px;border:none;border-bottom:1.5px solid #221C14;border-radius:0;margin:4px 0;background:transparent;color:#221C14}
   .tweakbanner{background:#F5EBD2;border:1px solid #E3CE9E;color:#8A6A1F;border-radius:3px;padding:10px 12px;font-size:13.5px;margin-top:12px}
   .tweakbanner a{color:#8A6A1F}
@@ -671,17 +673,24 @@ function copyText(txt,okMsg){
 }
 function formatQty(q){
   var whole=Math.floor(q+1e-9),frac=q-whole,out='';
-  var fr={0.25:'\u00BC',0.5:'\u00BD',0.75:'\u00BE'};
-  var key=Math.round(frac*100)/100;
-  if(fr[key]){out=(whole>0?whole:'')+fr[key];}
+  var fr={0.125:'\u215B',0.25:'\u00BC',0.375:'\u215C',0.5:'\u00BD',0.625:'\u215D',0.75:'\u00BE',0.875:'\u215E'};
+  var key=Math.round(frac*8)/8;
+  if(key>=1){whole+=1;key=0;}
+  if(key>0&&fr[key]&&Math.abs(frac-key)<0.02){out=(whole>0?whole:'')+fr[key];}
   else{out=String(Math.round(q*100)/100);}
   return out;
+}
+function formatScale(s){
+  var fr={0.25:'\u00BC',0.5:'\u00BD',0.75:'\u00BE'};
+  var whole=Math.floor(s+1e-9),key=Math.round((s-whole)*100)/100;
+  if(fr[key])return (whole>0?whole:'')+fr[key];
+  return String(Math.round(s*100)/100);
 }
 function ingText(ing,scale){
   if(ing.qty==null)return ing.text;
   var q=ing.qty*(scale||1);
   var unit=ing.unit||'';
-  if(unit&&q!==1&&ing.plural)unit=ing.plural;
+  if(unit&&q>1&&ing.plural)unit=ing.plural;
   return formatQty(q)+(unit?' '+unit:'')+' '+ing.text;
 }
 function dispIng(r,idx){
@@ -695,7 +704,7 @@ function recipeText(r){
   var a=getAdj(r.id);
   var lines=[];
   lines.push(r.name);
-  lines.push([r.serves?('Serves '+r.serves):'',r.time||''].filter(Boolean).join(' · ')+(r.tags&&r.tags.length?' | '+r.tags.join(', '):'')+(a.scale&&a.scale!==1?' (scaled '+a.scale+'x)':''));
+  lines.push([r.serves?('Serves '+r.serves):'',r.time||''].filter(Boolean).join(' · ')+(r.tags&&r.tags.length?' | '+r.tags.join(', '):'')+(a.scale&&a.scale!==1?' (scaled '+formatScale(a.scale)+'x)':''));
   lines.push('');
   lines.push('INGREDIENTS');
   r.ingredients.forEach(function(ing,i){lines.push('- '+dispIng(r,i)+(ing.optional?' (optional)':''));});
@@ -720,8 +729,16 @@ function copyRecipe(id){
 }
 
 // ===== Adjustments (scaler + edits) =====
-function setScale(rid,scale){
-  getAdj(rid).scale=scale;saveAdj();render(true);
+var SCALE_STEP=0.25,SCALE_MIN=0.25,SCALE_MAX=4;
+function stepScale(rid,dir){
+  var a=getAdj(rid);
+  var s=Math.round(((a.scale||1)+dir*SCALE_STEP)*100)/100;
+  if(s<SCALE_MIN)s=SCALE_MIN;
+  if(s>SCALE_MAX)s=SCALE_MAX;
+  a.scale=s;saveAdj();render(true);
+}
+function resetScale(rid){
+  getAdj(rid).scale=1;saveAdj();render(true);
 }
 function toggleEditMode(rid){
   editMode=editMode===rid?null:rid;render(true);
@@ -752,7 +769,7 @@ function resetAdj(rid){
 function sendTweak(rid){
   var r=getRecipe(rid);var a=getAdj(rid);
   var lines=['Tweak for '+r.name+':'];
-  if(a.scale&&a.scale!==1)lines.push('Scale: '+a.scale+'x');
+  if(a.scale&&a.scale!==1)lines.push('Scale: '+formatScale(a.scale)+'x');
   Object.keys(a.edits||{}).forEach(function(idx){
     lines.push('- '+ingText(r.ingredients[idx],a.scale||1)+' -> '+a.edits[idx]);
   });
@@ -1067,7 +1084,9 @@ function viewRecipe(id){
 
   // Ingredients header + scaler
   h+='<h3>Ingredients <span class="scaler">'+
-    [1,1.5,2].map(function(s){return '<button class="'+(scale===s?'on':'')+'" onclick="setScale(\''+r.id+'\','+s+')">'+s+'x</button>';}).join('')+
+    '<button class="step" aria-label="Scale down" onclick="stepScale(\''+r.id+'\',-1)">&minus;</button>'+
+    '<button class="cur'+(scale!==1?' on':'')+'" aria-label="Back to 1x" onclick="resetScale(\''+r.id+'\')">'+formatScale(scale)+'x</button>'+
+    '<button class="step" aria-label="Scale up" onclick="stepScale(\''+r.id+'\',1)">+</button>'+
     '</span></h3>';
 
   if(hasAdj(r.id)){
@@ -1173,7 +1192,7 @@ var HH_KEY=(location.search.match(/[?&]h=([a-z0-9-]+)/i)||[])[1]||null;
 if(!HH_KEY){try{HH_KEY=localStorage.getItem('hm-household');}catch(e){}}
 if(HH_KEY){try{localStorage.setItem('hm-household',HH_KEY);}catch(e){}}
 var lastRemoteJSON='',pushTimer=null,syncOnline=false,syncTried=false,clientStale=false;
-var APP_BUILD=17;
+var APP_BUILD=18;
 function canon(v){if(Array.isArray(v)){return '['+v.map(canon).join(',')+']';}if(v&&typeof v==='object'){return '{'+Object.keys(v).sort().map(function(k){return JSON.stringify(k)+':'+canon(v[k])}).join(',')+'}';}return JSON.stringify(v);}
 function cloudHeaders(){return {'apikey':SUPA_KEY,'Authorization':'Bearer '+SUPA_KEY,'Content-Type':'application/json'};}
 function setSyncUI(){
