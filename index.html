@@ -7,7 +7,7 @@
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,600;9..144,700&family=Newsreader:ital,opsz,wght@0,6..72,400;0,6..72,500;0,6..72,600;1,6..72,400&display=swap" rel="stylesheet">
 <title>Home Meals</title>
-<!-- v4.11 - flexible recipe scaling: - / + stepper in quarter steps (0.25x to 4x), fraction glyphs to the eighth, sub-1 quantities stay singular | v4.10 - edge fades on the filter chip swiper | v4.9 - declutter home header: tagline hidden, filters single swipeable row, slimmer add button | v4.8 - Sunday Cookbook reskin: Fraunces/Newsreader type, editorial hairlines, oxblood/olive palette; CSS + fonts only, zero functional change | v4.7 - seed-on-error guard: only seed the blob on a confirmed empty 200 (transient Supabase errors no longer clobber the book); background sync renders defer while a field has typed input; household slug rotated | v4.6 - fix sync clobbering: pushes only send locally-changed keys, pulls never wipe unsent local changes -->
+<!-- v4.12 - retired family links get a clear "link was retired" state and a paste-to-connect box on the home view, so the base URL and the old key no longer strand a phone in local-only mode | v4.11 - flexible recipe scaling: - / + stepper in quarter steps (0.25x to 4x), fraction glyphs to the eighth, sub-1 quantities stay singular | v4.10 - edge fades on the filter chip swiper | v4.9 - declutter home header: tagline hidden, filters single swipeable row, slimmer add button | v4.8 - Sunday Cookbook reskin: Fraunces/Newsreader type, editorial hairlines, oxblood/olive palette; CSS + fonts only, zero functional change | v4.7 - seed-on-error guard: only seed the blob on a confirmed empty 200 (transient Supabase errors no longer clobber the book); background sync renders defer while a field has typed input; household slug rotated | v4.6 - fix sync clobbering: pushes only send locally-changed keys, pulls never wipe unsent local changes -->
 <style>
   *{box-sizing:border-box}
   body{font-family:"Newsreader",Georgia,"Times New Roman",serif;background:#F7F2E9;color:#221C14;line-height:1.5;margin:0;padding:0 0 48px;-webkit-font-smoothing:antialiased}
@@ -1061,8 +1061,14 @@ function viewList(){
 }
 function viewRecipe(id){
   var r=getRecipe(id);
-  if(!r)return '<a class="back" href="#/">&larr; All recipes</a><div class="empty">Recipe not found.</div>';
-  var inList=state.recipes.indexOf(r.id)>=0;
+  if(!r)return '<a class="back" href="#/">&larr; All recipes</a><div class="  if(!HH_KEY||linkRetired){
+    h+='<div class="card"><h3>Connect to the family book</h3>'+
+      '<div class="meta">Paste the family link (or just its key) and this phone joins the shared book - recipes, notes and the shopping list stay in sync.</div>'+
+      '<div class="customadd"><input id="join-input" placeholder="Paste family link or key" maxlength="200" onkeydown="if(event.key===\'Enter\')joinHousehold()"><button class="btn" onclick="joinHousehold()">Connect</button></div></div>';
+  }
+  h+='<p class="syncstatus" id="syncstatus"></p>';
+  return h;
+}xOf(r.id)>=0;
   var a=getAdj(r.id);
   var scale=a.scale||1;
   var editing=editMode===r.id;
@@ -1198,15 +1204,15 @@ function cloudHeaders(){return {'apikey':SUPA_KEY,'Authorization':'Bearer '+SUPA
 function setSyncUI(){
   var el=document.getElementById('syncstatus');if(!el)return;
   if(!HH_KEY){el.textContent='Not connected to the family book - open your family link to sync';el.className='syncstatus';return;}
-  if(clientStale){el.textContent='A newer version of the app is out - close this tab and reopen the family link';el.className='syncstatus';return;}
+  ivar lastRemoteJSON='',pushTimer=null,syncOnline=false,syncTried=false,clientStale=false,linkRetired=false;open the family linvar APP_BUILD=19;syncstatus';return;}
   if(!syncTried){el.textContent='Syncing...';el.className='syncstatus';return;}
   el.textContent=syncOnline?('Synced across the family - '+HH_KEY):'Sync offline - changes stay on this phone';
   el.className='syncstatus'+(syncOnline?' ok':'');
 }
 var LS_DIRTY='hm-dirty-v1';
 var dirtyKeys={},commentRids={};
-function loadDirty(){try{var s=JSON.parse(localStorage.getItem(LS_DIRTY));if(s&&s.keys){dirtyKeys=s.keys;commentRids=s.rids||{};}}catch(e){}}
-function saveDirty(){try{localStorage.setItem(LS_DIRTY,JSON.stringify({keys:dirtyKeys,rids:commentRids}));}catch(e){}}
+function loadDirty(){try{var s=JSON.parse(localStorage.getItem(LS_DIRTY));if(s&&s.keys){dirtyKeys=s.keys;commentRids=s.  if(linkRetired){el.textContent='This family link was retired - get the new one from Corey and paste it below';el.className='syncstatus';return;}
+  if(!HH_KEY){el.textContent='Not connected to the family book - paste your family link below to sync';el.className='syncstatus';return;}catch(e){}}
 function markDirty(k){dirtyKeys[k]=true;saveDirty();}
 loadDirty();
 function cloudPush(){
@@ -1281,8 +1287,18 @@ function cloudPull(seedIfEmpty){
       try{if(!sessionStorage.getItem('hm-reload-tried')){sessionStorage.setItem('hm-reload-tried','1');location.reload();}}catch(e){}
       return;
     }
-    if(rowJSON!==lastRemoteJSON){
-      lastRemoteJSON=rowJSON;var b=row.state||{};
+    if(rowJSON!==lastRemoteJSON){function joinHousehold(){
+  var inp=document.getElementById('join-input');if(!inp)return;
+  var raw=(inp.value||'').trim();
+  var m=raw.match(/[?&]h=([a-z0-9-]+)/i)||raw.match(/^([a-z0-9-]{3,})$/i);
+  if(!m){toast('That does not look like a family link or key');return;}
+  HH_KEY=m[1].toLowerCase();
+  try{localStorage.setItem('hm-household',HH_KEY);}catch(e){}
+  clientStale=false;linkRetired=false;syncTried=false;syncOnline=false;
+  toast('Connecting to the family book...');
+  render();cloudPull(true);
+}
+function cloudPull(seedIfEmpty){r b=row.state||{};
       cloudPush.off=true;
       try{
         if(b.ratings&&!dirtyKeys.ratings){ratingsState=b.ratings;localStorage.setItem(LS_RATINGS,JSON.stringify(ratingsState));}
@@ -1298,8 +1314,10 @@ function cloudPull(seedIfEmpty){
   })
   .catch(function(){syncTried=true;syncOnline=false;setSyncUI();});
 }
-setInterval(function(){if(!document.hidden)cloudPull(false);},4000);
-document.addEventListener('visibilitychange',function(){if(!document.hidden)cloudPull(false);});
+setInterval(function(){if(    var row=rows[0];var rowJSON=canon(row.state||{});
+    if(row.state&&row.state.moved){linkRetired=true;clientStale=false;syncOnline=false;setSyncUI();requestRender();return;}
+    linkRetired=false;
+    var remoteV=(row.state&&row.state.v)||0;{if(!document.hidden)cloudPull(false);});
 
 // ===== Router =====
 function render(keepScroll){
