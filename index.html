@@ -205,7 +205,10 @@ var recipesState=loadRecipes();
 function addBundledRecipes(list){
   var changed=false;
   RECIPES_SEED.forEach(function(seed){
-    if(!list.some(function(r){return r.id===seed.id;})){list.push(seed);changed=true;}
+    var idx=-1;
+    list.some(function(r,i){if(r.id===seed.id){idx=i;return true;}return false;});
+    if(idx<0){list.push(seed);changed=true;return;}
+    if(seed.id==='pb-fit-peanut-sauce'&&canon(list[idx])!==canon(seed)){list[idx]=seed;changed=true;}
   });
   return changed;
 }
