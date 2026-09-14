@@ -164,6 +164,31 @@ var RECIPES_SEED=[
     ],
     macros:{cal:'~650',protein:'44g',carbs:'68g',fat:'18g'},
     note:'Wife-safe: celiac gluten-free, dairy-free, and nightshade-free.'
+  },
+  {
+    id:'pb-fit-peanut-sauce',
+    name:'PB Fit Peanut Sauce',
+    serves:'',
+    time:'',
+    tags:['gluten-free','dairy-free','nightshade-free','sauce'],
+    ingredients:[
+      {qty:0.5,unit:'cup',text:'PB Fit'},
+      {qty:0.25,unit:'cup',text:'warm water, plus more to thin'},
+      {qty:3,unit:'tbsp',text:'tamari'},
+      {qty:2,unit:'tbsp',text:'rice wine vinegar'},
+      {qty:1,unit:'tbsp',text:'honey or maple syrup'},
+      {qty:1,unit:'tsp',text:'toasted sesame oil'},
+      {text:'Grated ginger'},
+      {qty:1,unit:'clove',text:'garlic, finely grated'},
+      {text:'Squeeze of lime',optional:true},
+      {text:'Black pepper, to taste',optional:true}
+    ],
+    steps:[
+      'Whisk the PB Fit with about 1/4 cup warm water until loose.',
+      'Whisk in the tamari, rice wine vinegar, honey or maple, toasted sesame oil, ginger, garlic, and lime if using.',
+      'Add more water until it reaches a drizzling consistency. Use extra ginger and black pepper for more bite.'
+    ],
+    note:'Skip sriracha and chili garlic sauce to keep it nightshade-free.'
   }
 ];
 var IMPORT_NUMBER='+16504447686';
@@ -177,6 +202,17 @@ function loadRecipes(){
 }
 function saveRecipes(){localStorage.setItem(LS_RECIPES,JSON.stringify(recipesState));markDirty('recipes');cloudPush();}
 var recipesState=loadRecipes();
+function addBundledRecipes(list){
+  var changed=false;
+  RECIPES_SEED.forEach(function(seed){
+    var idx=-1;
+    list.some(function(r,i){if(r.id===seed.id){idx=i;return true;}return false;});
+    if(idx<0){list.push(seed);changed=true;return;}
+    if(seed.id==='pb-fit-peanut-sauce'&&canon(list[idx])!==canon(seed)){list[idx]=seed;changed=true;}
+  });
+  return changed;
+}
+if(addBundledRecipes(recipesState)){localStorage.setItem(LS_RECIPES,JSON.stringify(recipesState));}
 function slugify(name){var s=(name||'').toLowerCase().replace(/[^a-z0-9]+/g,'-').replace(/^-+|-+$/g,'');return s||('recipe-'+Date.now());}
 function uniqueId(base){var id=base,n=2;while(getRecipe(id)){id=base+'-'+(n++);}return id;}
 function parseIngLine(line){
@@ -1197,7 +1233,7 @@ var HH_KEY=(location.search.match(/[?&]h=([a-z0-9-]+)/i)||[])[1]||null;
 if(!HH_KEY){try{HH_KEY=localStorage.getItem('hm-household');}catch(e){}}
 if(HH_KEY){try{localStorage.setItem('hm-household',HH_KEY);}catch(e){}}
 var lastRemoteJSON='',pushTimer=null,syncOnline=false,syncTried=false,clientStale=false,linkRetired=false;
-var APP_BUILD=19;
+var APP_BUILD=20;
 function canon(v){if(Array.isArray(v)){return '['+v.map(canon).join(',')+']';}if(v&&typeof v==='object'){return '{'+Object.keys(v).sort().map(function(k){return JSON.stringify(k)+':'+canon(v[k])}).join(',')+'}';}return JSON.stringify(v);}
 function cloudHeaders(){return {'apikey':SUPA_KEY,'Authorization':'Bearer '+SUPA_KEY,'Content-Type':'application/json'};}
 function setSyncUI(){
@@ -1308,7 +1344,11 @@ function cloudPull(seedIfEmpty){
         if(b.comments&&!dirtyKeys.comments){commentState=b.comments;localStorage.setItem(LS_COMMENTS,JSON.stringify(commentState));}
         if(b.shop&&!dirtyKeys.shop){state=b.shop;localStorage.setItem(LS_KEY,JSON.stringify(state));updateCartBadge();}
         if(b.custom&&!dirtyKeys.custom){customState=b.custom.filter(function(c){return !isStepDump(c);});localStorage.setItem(LS_CUSTOM,JSON.stringify(customState));}
-        if(b.recipes&&b.recipes.length&&!dirtyKeys.recipes){recipesState=b.recipes;localStorage.setItem(LS_RECIPES,JSON.stringify(recipesState));}
+        if(b.recipes&&b.recipes.length&&!dirtyKeys.recipes){
+          recipesState=b.recipes;
+          if(addBundledRecipes(recipesState))dirtyKeys.recipes=true;
+          localStorage.setItem(LS_RECIPES,JSON.stringify(recipesState));
+        }
       }finally{cloudPush.off=false;}
       requestRender();
     }
