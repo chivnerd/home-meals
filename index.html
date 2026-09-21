@@ -200,7 +200,16 @@ function loadRecipes(){
   try{var s=JSON.parse(localStorage.getItem(LS_RECIPES));if(s&&s.length)return s;}catch(e){}
   return RECIPES_SEED.slice();
 }
-function saveRecipes(){localStorage.setItem(LS_RECIPES,JSON.stringify(recipesState));markDirty('recipes');cloudPush();}
+function saveRecipes(rid,deleted){
+  localStorage.setItem(LS_RECIPES,JSON.stringify(recipesState));
+  markDirty('recipes');
+  if(rid){
+    recipeDirtyIds[rid]=true;
+    if(deleted)deletedRecipeIds[rid]=true;else delete deletedRecipeIds[rid];
+    saveDirty();
+  }
+  cloudPush();
+}
 var recipesState=loadRecipes();
 function addBundledRecipes(list){
   var changed=false;
@@ -548,7 +557,7 @@ function saveNewRecipe(){
     if(getRecipe(r.id))r.id=uniqueId(r.id);
     recipesState.push(r);
     addDraft=null;addOpen=false;
-    saveRecipes();
+    saveRecipes(r.id);
     location.hash='#/recipe/'+r.id;
     toast('Added to the family book'+estNote);
   });
@@ -558,7 +567,7 @@ function deleteRecipe(rid){
   if(!confirm('Remove "'+r.name+'" from the family book? This removes it for everyone.'))return;
   pullRecipesOnce().then(function(){
     recipesState=recipesState.filter(function(x){return x.id!==rid;});
-    saveRecipes();
+    saveRecipes(rid,true);
     location.hash='#/';
     toast('Recipe removed');
   });
@@ -796,7 +805,7 @@ function saveTags(rid){
   pullRecipesOnce().then(function(){
     var r=getRecipe(rid);if(!r)return;
     r.tags=tags;
-    saveRecipes();render(true);toast('Tags saved for everyone');
+    saveRecipes(rid);render(true);toast('Tags saved for everyone');
   });
 }
 function resetAdj(rid){
@@ -1233,7 +1242,7 @@ var HH_KEY=(location.search.match(/[?&]h=([a-z0-9-]+)/i)||[])[1]||null;
 if(!HH_KEY){try{HH_KEY=localStorage.getItem('hm-household');}catch(e){}}
 if(HH_KEY){try{localStorage.setItem('hm-household',HH_KEY);}catch(e){}}
 var lastRemoteJSON='',pushTimer=null,syncOnline=false,syncTried=false,clientStale=false,linkRetired=false;
-var APP_BUILD=20;
+var APP_BUILD=21;
 function canon(v){if(Array.isArray(v)){return '['+v.map(canon).join(',')+']';}if(v&&typeof v==='object'){return '{'+Object.keys(v).sort().map(function(k){return JSON.stringify(k)+':'+canon(v[k])}).join(',')+'}';}return JSON.stringify(v);}
 function cloudHeaders(){return {'apikey':SUPA_KEY,'Authorization':'Bearer '+SUPA_KEY,'Content-Type':'application/json'};}
 function setSyncUI(){
@@ -1246,9 +1255,9 @@ function setSyncUI(){
   el.className='syncstatus'+(syncOnline?' ok':'');
 }
 var LS_DIRTY='hm-dirty-v1';
-var dirtyKeys={},commentRids={};
-function loadDirty(){try{var s=JSON.parse(localStorage.getItem(LS_DIRTY));if(s&&s.keys){dirtyKeys=s.keys;commentRids=s.rids||{};}}catch(e){}}
-function saveDirty(){try{localStorage.setItem(LS_DIRTY,JSON.stringify({keys:dirtyKeys,rids:commentRids}));}catch(e){}}
+var dirtyKeys={},commentRids={},recipeDirtyIds={},deletedRecipeIds={};
+function loadDirty(){try{var s=JSON.parse(localStorage.getItem(LS_DIRTY));if(s&&s.keys){dirtyKeys=s.keys;commentRids=s.rids||{};recipeDirtyIds=s.recipeIds||{};deletedRecipeIds=s.deletedRecipeIds||{};}}catch(e){}}
+function saveDirty(){try{localStorage.setItem(LS_DIRTY,JSON.stringify({keys:dirtyKeys,rids:commentRids,recipeIds:recipeDirtyIds,deletedRecipeIds:deletedRecipeIds}));}catch(e){}}
 function markDirty(k){dirtyKeys[k]=true;saveDirty();}
 loadDirty();
 function cloudPush(){
@@ -1257,13 +1266,17 @@ function cloudPush(){
   pushTimer=setTimeout(function(){
     var keys=Object.keys(dirtyKeys);
     if(!keys.length)return;
-    var pushedRids=Object.keys(commentRids),pushedCanon={};
+    var pushedRids=Object.keys(commentRids),pushedCanon={},pushedRecipeIds=Object.keys(recipeDirtyIds),pushedDeletedIds=Object.keys(deletedRecipeIds),pushedRecipeCanon={};
     var blob={recipes:recipesState,ratings:ratingsState,comments:commentState,shop:state,custom:customState};
     var now=new Date().toISOString();
     fetch(SUPA_URL+'/rest/v1/household_state?slug=eq.'+encodeURIComponent(HH_KEY)+'&select=state',{headers:cloudHeaders()})
     .then(function(r){return r.ok?r.json():[];})
     .then(function(rows){
       var remote=(rows&&rows.length&&rows[0].state)||{};
+      if(remote.moved){
+        try{localStorage.removeItem('hm-household');}catch(e){}
+        HH_KEY=null;linkRetired=true;syncOnline=false;dirtyKeys={};commentRids={};recipeDirtyIds={};deletedRecipeIds={};saveDirty();setSyncUI();requestRender();return;
+      }
       var merged={};
       Object.keys(remote).forEach(function(k){merged[k]=remote[k];});
       keys.forEach(function(k){
@@ -1272,6 +1285,18 @@ function cloudPush(){
           Object.keys(rc).forEach(function(rid){mc[rid]=rc[rid];});
           pushedRids.forEach(function(rid){mc[rid]=commentState[rid]||[];pushedCanon[rid]=canon(mc[rid]);});
           merged.comments=mc;
+        }else if(k==='recipes'){
+          var byId={};
+          (remote.recipes||[]).forEach(function(r){if(r&&r.id)byId[r.id]=r;});
+          // Older clients only recorded a coarse recipes-dirty bit. Union their list instead of
+          // replacing the household array so another phone's additions cannot disappear.
+          var ids=pushedRecipeIds.length?pushedRecipeIds:(blob.recipes||[]).map(function(r){return r.id;});
+          pushedDeletedIds.forEach(function(id){delete byId[id];});
+          ids.forEach(function(id){
+            var local=null;(blob.recipes||[]).some(function(r){if(r.id===id){local=r;return true;}return false;});
+            if(local){byId[id]=local;pushedRecipeCanon[id]=canon(local);}
+          });
+          merged.recipes=Object.keys(byId).map(function(id){return byId[id];});
         }else{
           merged[k]=blob[k];
         }
@@ -1280,11 +1305,21 @@ function cloudPush(){
       return fetch(SUPA_URL+'/rest/v1/household_state',{method:'POST',headers:Object.assign(cloudHeaders(),{'Prefer':'resolution=merge-duplicates'}),body:JSON.stringify({slug:HH_KEY,state:merged,updated_at:now})})
       .then(function(r2){
         if(r2.ok){
-          keys.forEach(function(k){if(k!=='comments')delete dirtyKeys[k];});
+          keys.forEach(function(k){if(k!=='comments'&&k!=='recipes')delete dirtyKeys[k];});
+          pushedRecipeIds.forEach(function(id){
+            var local=null;recipesState.some(function(r){if(r.id===id){local=r;return true;}return false;});
+            if(local&&canon(local)===pushedRecipeCanon[id])delete recipeDirtyIds[id];
+          });
+          pushedDeletedIds.forEach(function(id){
+            if(!getRecipe(id)){delete deletedRecipeIds[id];delete recipeDirtyIds[id];}
+          });
+          if(!Object.keys(recipeDirtyIds).length&&!Object.keys(deletedRecipeIds).length)delete dirtyKeys.recipes;
           pushedRids.forEach(function(rid){if(canon(commentState[rid]||[])===pushedCanon[rid])delete commentRids[rid];});
           if(!Object.keys(commentRids).length)delete dirtyKeys['comments'];
           saveDirty();
-          lastRemoteJSON=canon(merged);syncOnline=true;
+          // Force the next pull to apply the merged server snapshot locally. Otherwise this phone
+          // remembers the server JSON without ever rendering recipes contributed by the other phone.
+          lastRemoteJSON='';syncOnline=true;
         }else{syncOnline=false;}
         setSyncUI();
       });
@@ -1328,7 +1363,10 @@ function cloudPull(seedIfEmpty){
     syncTried=true;syncOnline=true;
     if(!rows||!rows.length){if(seedIfEmpty){['recipes','ratings','comments','shop','custom'].forEach(function(k){dirtyKeys[k]=true;});saveDirty();cloudPush();}setSyncUI();return;}
     var row=rows[0];var rowJSON=canon(row.state||{});
-    if(row.state&&row.state.moved){linkRetired=true;clientStale=false;syncOnline=false;setSyncUI();requestRender();return;}
+    if(row.state&&row.state.moved){
+      try{localStorage.removeItem('hm-household');}catch(e){}
+      HH_KEY=null;linkRetired=true;clientStale=false;syncOnline=false;setSyncUI();requestRender();return;
+    }
     linkRetired=false;
     var remoteV=(row.state&&row.state.v)||0;
     if(remoteV>APP_BUILD){
@@ -1383,4 +1421,3 @@ setSyncUI();
 </script>
 </body>
 </html>
-
