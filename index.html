@@ -1317,7 +1317,9 @@ function cloudPush(){
           pushedRids.forEach(function(rid){if(canon(commentState[rid]||[])===pushedCanon[rid])delete commentRids[rid];});
           if(!Object.keys(commentRids).length)delete dirtyKeys['comments'];
           saveDirty();
-          lastRemoteJSON=canon(merged);syncOnline=true;
+          // Force the next pull to apply the merged server snapshot locally. Otherwise this phone
+          // remembers the server JSON without ever rendering recipes contributed by the other phone.
+          lastRemoteJSON='';syncOnline=true;
         }else{syncOnline=false;}
         setSyncUI();
       });
