@@ -775,8 +775,17 @@ function recipeText(r){
 }
 function sendRecipe(id){
   var r=getRecipe(id);if(!r)return;
-  if(isMobile()){window.location.href=smsHref('',recipeText(r));}
-  else{copyText(recipeText(r),'Recipe copied - paste it anywhere');}
+  var txt=recipeText(r);
+  // iPhone/Android: open the native share sheet (Messages, WhatsApp, AirDrop, Mail...)
+  if(isMobile()&&navigator.share){
+    navigator.share({text:txt}).catch(function(e){
+      if(e&&e.name==='AbortError')return; // closed the sheet on purpose
+      window.location.href=smsHref('',txt); // share sheet unavailable - old Messages behavior
+    });
+    return;
+  }
+  if(isMobile()){window.location.href=smsHref('',txt);}
+  else{copyText(txt,'Recipe copied - paste it anywhere');}
 }
 function copyRecipe(id){
   var r=getRecipe(id);if(!r)return;
@@ -1389,7 +1398,7 @@ var HH_KEY=(location.search.match(/[?&]h=([a-z0-9-]+)/i)||[])[1]||null;
 if(!HH_KEY){try{HH_KEY=localStorage.getItem('hm-household');}catch(e){}}
 if(HH_KEY){try{localStorage.setItem('hm-household',HH_KEY);}catch(e){}}
 var lastRemoteJSON='',pushTimer=null,syncOnline=false,syncTried=false,clientStale=false,linkRetired=false;
-var APP_BUILD=22;
+var APP_BUILD=23;
 function canon(v){if(Array.isArray(v)){return '['+v.map(canon).join(',')+']';}if(v&&typeof v==='object'){return '{'+Object.keys(v).sort().map(function(k){return JSON.stringify(k)+':'+canon(v[k])}).join(',')+'}';}return JSON.stringify(v);}
 function cloudHeaders(){return {'apikey':SUPA_KEY,'Authorization':'Bearer '+SUPA_KEY,'Content-Type':'application/json'};}
 function setSyncUI(){
