@@ -121,6 +121,9 @@
   .addfield::placeholder,.addarea::placeholder,.addcard .addrow input::placeholder,.addrow2 input::placeholder,.commentform input::placeholder,.customadd input::placeholder,.ingedit::placeholder{font-style:italic;color:#A89C8A}
   .toast{position:fixed;left:50%;bottom:24px;transform:translateX(-50%);background:#221C14;color:#F7F2E9;padding:10px 18px;border-radius:3px;font-size:13.5px;opacity:0;transition:opacity .25s;pointer-events:none;white-space:nowrap}
   .toast.show{opacity:1}
+  body.viewonly .cartbtn{display:none}
+  body.viewonly .topbar a.brand{pointer-events:none}
+  .sharedfoot{margin-top:22px;padding-top:14px;border-top:1px solid #DCD3C2;color:#6E6558;font-size:13px;font-style:italic;text-align:center}
 </style>
 
 </head>
@@ -1275,6 +1278,7 @@ function viewRecipe(id){
     '<div style="margin-top:14px">'+
       '<button class="btn primary" onclick="sendRecipe(\''+r.id+'\')">Send as text</button>'+
       '<button class="btn" onclick="copyRecipe(\''+r.id+'\')">Copy</button>'+
+      '<button class="btn" onclick="shareRecipeLink(\''+r.id+'\')">Share link</button>'+
       '<button class="btn '+(inList?'inlist':'')+'" onclick="toggleShop(\''+r.id+'\')">'+(inList?'&#10003; On shopping list':'+ Shopping list')+'</button>'+
       '<button class="btn" onclick="toggleEditMode(\''+r.id+'\')">'+(editing?'Done editing':'Edit')+'</button>'+
     '</div>';
@@ -1389,7 +1393,7 @@ var HH_KEY=(location.search.match(/[?&]h=([a-z0-9-]+)/i)||[])[1]||null;
 if(!HH_KEY){try{HH_KEY=localStorage.getItem('hm-household');}catch(e){}}
 if(HH_KEY){try{localStorage.setItem('hm-household',HH_KEY);}catch(e){}}
 var lastRemoteJSON='',pushTimer=null,syncOnline=false,syncTried=false,clientStale=false,linkRetired=false;
-var APP_BUILD=22;
+var APP_BUILD=23;
 function canon(v){if(Array.isArray(v)){return '['+v.map(canon).join(',')+']';}if(v&&typeof v==='object'){return '{'+Object.keys(v).sort().map(function(k){return JSON.stringify(k)+':'+canon(v[k])}).join(',')+'}';}return JSON.stringify(v);}
 function cloudHeaders(){return {'apikey':SUPA_KEY,'Authorization':'Bearer '+SUPA_KEY,'Content-Type':'application/json'};}
 function setSyncUI(){
@@ -1542,14 +1546,84 @@ function cloudPull(seedIfEmpty){
   })
   .catch(function(){syncTried=true;syncOnline=false;setSyncUI();});
 }
-setInterval(function(){if(!document.hidden)cloudPull(false);},4000);
-document.addEventListener('visibilitychange',function(){if(!document.hidden)cloudPull(false);});
+setInterval(function(){if(!document.hidden&&!isViewRoute())cloudPull(false);},4000);
+document.addEventListener('visibilitychange',function(){if(!document.hidden&&!isViewRoute())cloudPull(false);});
+
+// ===== Read-only share link =====
+// The whole recipe rides in the URL fragment (#/view/...). No household key, nothing stored,
+// and the view page never talks to Supabase. Fragments are never sent to the server.
+function isViewRoute(){return (location.hash||'').indexOf('#/view/')===0;}
+function b64urlEncode(str){
+  var bytes=new TextEncoder().encode(str),bin='';
+  for(var i=0;i<bytes.length;i++)bin+=String.fromCharCode(bytes[i]);
+  return btoa(bin).replace(/\+/g,'-').replace(/\//g,'_').replace(/=+$/,'');
+}
+function b64urlDecode(s){
+  s=s.replace(/-/g,'+').replace(/_/g,'/');while(s.length%4)s+='=';
+  var bin=atob(s),bytes=new Uint8Array(bin.length);
+  for(var i=0;i<bin.length;i++)bytes[i]=bin.charCodeAt(i);
+  return new TextDecoder().decode(bytes);
+}
+// Same content as recipeText(): current scale + inline edits on this phone, recipe note. No family notes, ratings or names.
+function sharePayload(r){
+  var a=getAdj(r.id),p={v:1,n:r.name};
+  if(r.serves)p.s=String(r.serves);
+  if(r.time)p.t=r.time;
+  if(r.tags&&r.tags.length)p.g=r.tags;
+  if(a.scale&&a.scale!==1)p.x=a.scale;
+  p.i=r.ingredients.map(function(ing,i){return dispIng(r,i)+(ing.optional?' (optional)':'');});
+  p.st=r.steps||[];
+  if(r.macros)p.m=[r.macros.cal,r.macros.protein,r.macros.carbs,r.macros.fat,r.macros.est?1:0];
+  if(r.source)p.src=r.source;
+  var note=a.note!=null&&a.note!==''?a.note:r.note;
+  if(note)p.no=note;
+  return p;
+}
+function shareLinkFor(r){
+  // origin + path only: never carries ?h= (the household key)
+  return location.origin+location.pathname+'#/view/'+b64urlEncode(JSON.stringify(sharePayload(r)));
+}
+function shareRecipeLink(id){
+  var r=getRecipe(id);if(!r)return;
+  var url=shareLinkFor(r);
+  if(isMobile()&&navigator.share){
+    navigator.share({title:r.name,url:url}).catch(function(e){
+      if(e&&e.name==='AbortError')return;
+      copyText(url,'Read-only link copied');
+    });
+    return;
+  }
+  copyText(url,'Read-only link copied - paste it anywhere');
+}
+function viewShared(code){
+  var p=null;
+  try{p=JSON.parse(b64urlDecode(code));}catch(e){}
+  function str(v){return (typeof v==='string'||typeof v==='number')?String(v):'';}
+  function list(v){return Array.isArray(v)?v.map(str).filter(Boolean):[];}
+  if(!p||typeof p!=='object'||!str(p.n)){
+    return '<div class="card"><h2>Recipe link is incomplete</h2><p class="sub">It may have been cut off when it was sent. Ask for a fresh link.</p></div>';
+  }
+  var x=Number(p.x)||1,src=str(p.src),note=str(p.no),m=Array.isArray(p.m)?p.m:null;
+  var h='<div class="card"><h2>'+esc(p.n)+'</h2>'+
+    '<div class="meta">'+[str(p.s)?('Serves '+esc(str(p.s))):'',esc(str(p.t))].filter(Boolean).join(' &middot; ')+(x!==1?' &middot; scaled '+esc(formatScale(x))+'x':'')+'</div>'+
+    '<div>'+tagRow({tags:list(p.g)})+'</div>'+
+    (/^https?:\/\//i.test(src)?'<div class="meta" style="margin-top:6px"><a href="'+escAttr(src)+'" target="_blank" rel="noopener noreferrer" style="color:#8A3524">Original recipe</a></div>':'')+
+    (m?macroRow({macros:{cal:str(m[0]),protein:str(m[1]),carbs:str(m[2]),fat:str(m[3]),est:!!m[4]}}):'');
+  h+='<h3>Ingredients</h3><ul>'+list(p.i).map(function(t){return '<li>'+esc(t)+'</li>';}).join('')+'</ul>';
+  var steps=list(p.st);
+  if(steps.length)h+='<h3>Steps</h3><ol>'+steps.map(function(t){return '<li>'+esc(t)+'</li>';}).join('')+'</ol>';
+  if(note)h+='<h3>Note</h3><p>'+esc(note)+'</p>';
+  h+='<div class="sharedfoot">Shared from Home Meals - a read-only copy</div></div>';
+  return h;
+}
 
 // ===== Router =====
 function render(keepScroll){
   var y=keepScroll?(window.scrollY||window.pageYOffset||0):0;
   var hash=location.hash||'#/';
   var app=document.getElementById('app');
+  document.body.classList.toggle('viewonly',hash.indexOf('#/view/')===0);
+  if(hash.indexOf('#/view/')===0){app.innerHTML=viewShared(hash.slice(7));return;}
   if(hash.indexOf('#/recipe/')===0){app.innerHTML=viewRecipe(hash.slice(9));}
   else if(hash==='#/list'){app.innerHTML=viewShopping();}
   else{app.innerHTML=viewList();renderCookResults();}
@@ -1563,7 +1637,7 @@ function render(keepScroll){
 window.addEventListener('hashchange',function(){render();window.scrollTo(0,0);});
 updateCartBadge();
 render();
-cloudPull(true);
+if(!isViewRoute())cloudPull(true);
 setSyncUI();
 </script>
 </body>
