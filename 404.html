@@ -1,0 +1,19 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Hivner Meals</title>
+<script>
+// GitHub Pages serves this file for any unknown path. Turn clean URLs like
+// /recipe/crispy-roasted-chickpeas into the hash route the app understands,
+// preserving the query string (family links carry ?h=) and nothing else.
+// BASE covers the legacy github.io/home-meals path; the custom domain has none.
+(function(){
+  var base=location.pathname.toLowerCase().indexOf('/home-meals')===0?'/home-meals':'';
+  var p=location.pathname.slice(base.length).replace(/\/+$/,'');
+  location.replace(base+'/'+(location.search||'')+(p?'#'+p:''));
+})();
+</script>
+</head>
+<body></body>
+</html>
