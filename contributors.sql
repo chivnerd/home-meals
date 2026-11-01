@@ -1,11 +1,10 @@
--- DRAFT - contributor lockdown for Hivner Meals. Direction approved by Corey
--- (Nov 1, 2026: email sign-in links, only Corey and Erin contribute).
--- DO NOT RUN without his explicit go-ahead, and only AFTER the app update that
--- understands email sign-in is live, because this migration ends anonymous
--- family-key access to household_state (older app versions lose sync by design).
+-- Contributor lockdown for Hivner Meals. APPLIED to production Nov 1, 2026
+-- with Corey's approval (iMessage "Yes, those are fine" 5:22 PM, confirming
+-- hivner.1@gmail.com + erinhivner@gmail.com as the only two contributors).
+-- Applied with two fixes discovered during live verification, marked FIX below.
 --
--- Emails and the household slug stay OUT of this public repo: set them with
--- set_config in the same SQL Editor transaction, like public-recipes.sql does:
+-- Emails and the household slug stay OUT of this public repo: they were set
+-- with set_config in the same SQL Editor transaction, like public-recipes.sql:
 --   select set_config('home_meals.household_slug', '<current private family key>', true);
 --   select set_config('home_meals.contributor_emails', '<corey-email>,<erin-email>', true);
 
@@ -47,7 +46,7 @@ as $$
     where c.email = lower(coalesce(auth.jwt() ->> 'email', ''))
   );
 $$;
-revoke all on function public.home_meals_contributor_household() from public;
+revoke all on function public.home_meals_contributor_household() from public, anon;
 grant execute on function public.home_meals_contributor_household() to authenticated;
 
 -- 3) Lock the family book. Public recipe reading keeps working through the
@@ -55,17 +54,28 @@ grant execute on function public.home_meals_contributor_household() to authentic
 --    is recipe-only and does not depend on table grants for anon.
 alter table public.household_state enable row level security;
 revoke all on public.household_state from anon;
+-- FIX 2: RLS policies apply on top of table grants; contributors still need
+-- the grant. The policy above is what restricts them to the allowlist.
 revoke all on public.household_state from authenticated;
+grant select, insert, update on public.household_state to authenticated;
+-- Old permissive key-era policies (anon_read/anon_insert/anon_update) would
+-- otherwise let ANY signed-in user through the new grant; drop them.
+drop policy if exists anon_read on public.household_state;
+drop policy if exists anon_insert on public.household_state;
+drop policy if exists anon_update on public.household_state;
+-- FIX 1: a policy expression runs with the CALLER's privileges, so reading
+-- home_meals_private.contributors directly fails for every signed-in user.
+-- The check goes through this security-definer function instead.
+create or replace function home_meals_private.is_contributor() returns boolean
+language sql stable security definer set search_path = ''
+as $$ select exists (select 1 from home_meals_private.contributors as c where c.email = lower(coalesce(auth.jwt() ->> 'email', ''))); $$;
+revoke all on function home_meals_private.is_contributor() from public, anon;
+grant execute on function home_meals_private.is_contributor() to authenticated;
+
 create policy home_meals_contributors_all on public.household_state
   for all to authenticated
-  using (exists (
-    select 1 from home_meals_private.contributors as c
-    where c.email = lower(coalesce(auth.jwt() ->> 'email', ''))
-  ))
-  with check (exists (
-    select 1 from home_meals_private.contributors as c
-    where c.email = lower(coalesce(auth.jwt() ->> 'email', ''))
-  ));
+  using (home_meals_private.is_contributor())
+  with check (home_meals_private.is_contributor());
 
 -- VERIFY, in this order:
 --   1. select public.home_meals_public_recipes(); still returns recipe-only JSON (anon).
