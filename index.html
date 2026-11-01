@@ -21,7 +21,7 @@
 <meta name="twitter:title" content="Hivner Meals - the family recipe book">
 <meta name="twitter:description" content="The Hivner family cookbook: shared recipes, a shopping list, and cook-with-what-you-have search, synced across the family.">
 <meta name="twitter:image" content="https://hivner-meals.chivner.com/3-home-meals-og.png?v=27">
-<!-- v4.14 - link previews: Open Graph and Twitter card metadata with a 1200x630 preview image on the custom domain, no functional change | v4.13 - cook with what you have: search the book from the home view by ingredient, recipe name, or meal tag; nudge chips show the ways to search; ingredient hits rank by what you typed and show what each recipe still needs, pantry staples do not count as missing | v4.12 - retired family links get a clear "link was retired" state and a paste-to-connect box on the home view, so the base URL and the old key no longer strand a phone in local-only mode | v4.11 - flexible recipe scaling: - / + stepper in quarter steps (0.25x to 4x), fraction glyphs to the eighth, sub-1 quantities stay singular | v4.10 - edge fades on the filter chip swiper | v4.9 - declutter home header: tagline hidden, filters single swipeable row, slimmer add button | v4.8 - Sunday Cookbook reskin: Fraunces/Newsreader type, editorial hairlines, oxblood/olive palette; CSS + fonts only, zero functional change | v4.7 - seed-on-error guard: only seed the blob on a confirmed empty 200 (transient Supabase errors no longer clobber the book); background sync renders defer while a field has typed input; household slug rotated | v4.6 - fix sync clobbering: pushes only send locally-changed keys, pulls never wipe unsent local changes -->
+<!-- v4.15 - feedback-driven AI next versions: Improve-this-recipe panel turns family notes into a reviewed recipe proposal (paste-any-AI brief or optional on-device Anthropic key), apply as an update with auto History snapshot or as a linked spin-off recipe; ingredient diff, dietary-tag guard, restore, idea badges | v4.14 - link previews: Open Graph and Twitter card metadata with a 1200x630 preview image on the custom domain, no functional change | v4.13 - cook with what you have: search the book from the home view by ingredient, recipe name, or meal tag; nudge chips show the ways to search; ingredient hits rank by what you typed and show what each recipe still needs, pantry staples do not count as missing | v4.12 - retired family links get a clear "link was retired" state and a paste-to-connect box on the home view, so the base URL and the old key no longer strand a phone in local-only mode | v4.11 - flexible recipe scaling: - / + stepper in quarter steps (0.25x to 4x), fraction glyphs to the eighth, sub-1 quantities stay singular | v4.10 - edge fades on the filter chip swiper | v4.9 - declutter home header: tagline hidden, filters single swipeable row, slimmer add button | v4.8 - Sunday Cookbook reskin: Fraunces/Newsreader type, editorial hairlines, oxblood/olive palette; CSS + fonts only, zero functional change | v4.7 - seed-on-error guard: only seed the blob on a confirmed empty 200 (transient Supabase errors no longer clobber the book); background sync renders defer while a field has typed input; household slug rotated | v4.6 - fix sync clobbering: pushes only send locally-changed keys, pulls never wipe unsent local changes -->
 <style>
   *{box-sizing:border-box}
   body{font-family:"Newsreader",Georgia,"Times New Roman",serif;background:#F7F2E9;color:#221C14;line-height:1.5;margin:0;padding:0 0 48px;-webkit-font-smoothing:antialiased}
@@ -114,6 +114,18 @@
   .reviewhelp summary{cursor:pointer;min-height:44px;display:list-item;padding:12px 0}
   .reviewhelp select{width:100%;max-width:100%;font:inherit;font-size:16px;min-height:44px;padding:8px;border:1px solid #C9BCA6;background:#FCF9F3;color:#221C14}
   .reviewhint{font-size:12px;color:#6E6558;margin:6px 0 10px}
+  .improvebanner{margin:16px 0 0;padding:10px 12px;border-left:2px solid #46523A;background:#EBEDE3;font-size:14px;line-height:1.5}
+  .improvebanner strong{font-size:12px;color:#46523A;display:block}
+  .improve{margin-top:14px;border-top:1px solid #DCD3C2;padding-top:4px}
+  .improve>summary{cursor:pointer;min-height:44px;padding:12px 0;font-family:"Newsreader",Georgia,serif;font-size:11.5px;font-weight:600;text-transform:uppercase;letter-spacing:.2em;color:#6E6558}
+  .aimode{display:inline-block;font-size:10px;font-weight:600;letter-spacing:.14em;text-transform:uppercase;color:#46523A;border:1px solid #46523A;border-radius:999px;padding:2px 8px;margin-left:8px;vertical-align:middle;white-space:nowrap}
+  .diffbox{margin:4px 0 8px;font-size:14.5px}
+  .diffadd{display:block;background:#EBEDE3;color:#46523A;padding:3px 8px;margin:2px 0}
+  .diffdel{display:block;background:#F3E6E0;color:#8A3524;padding:3px 8px;margin:2px 0;text-decoration:line-through}
+  .diffchg{display:block;padding:3px 8px;margin:2px 0;background:#F5EBD2}
+  .diffchg .was{color:#8A3524;text-decoration:line-through}
+  .versionhist .vrow{padding:8px 0;border-bottom:1px solid #DCD3C2;font-size:14.5px}
+  .proposal ul li{margin:2px 0}
   .commentform input{display:block;width:100%;font:inherit;font-size:16px;padding:11px 2px;border:none;border-bottom:1.5px solid #221C14;border-radius:0;margin:8px 0;background:transparent;color:#221C14}
   .syncstatus{text-align:center;color:#6E6558;font-size:12.5px;font-style:italic;margin:22px 0 4px}
   .syncstatus.ok{color:#46523A}
@@ -932,6 +944,313 @@ function reviewSuggestionHTML(c){
   return '<div class="nexttime"><strong>Next time: '+esc(issue.label.toLowerCase())+'</strong><p>'+esc(issue.tip)+'</p><div class="reviewhint">Suggested experiment for '+esc(c.name||'this reviewer')+', not a recipe change. Keep dietary requirements and what others liked. Try one change in a small portion first.</div></div>';
 }
 function reviewIssueOptions(){return '<option value="">Choose what could be better</option>'+REVIEW_ISSUES.map(function(x){return '<option value="'+x.id+'">'+esc(x.label)+'</option>';}).join('');}
+// ===== AI next version (feedback-driven proposals) =====
+// The brief carries the recipe, family notes, and dietary rules to an AI the family chooses.
+// Nothing changes until a person reviews the proposal. Originals are kept: an update snapshots
+// the current master into History, a variant becomes its own linked recipe. No API keys live
+// on the phone: in-app one-tap generation waits for the server-side proxy (see PR discussion).
+var improveUI={};
+function recipeFeedback(rid){
+  return (commentState[rid]||[]).map(function(c){return {c:c,issue:reviewIssue(c),ts:c.ts||0};});
+}
+function unaddressedFeedback(rid){
+  var r=getRecipe(rid);if(!r)return [];
+  var addressed=0;
+  (r.versions||[]).forEach(function(v){if((v.ts||0)>addressed)addressed=v.ts;});
+  recipesState.forEach(function(x){if(x.variant_of===rid&&(x.created||0)>addressed)addressed=x.created;});
+  return recipeFeedback(rid).filter(function(f){return f.issue&&(f.ts||0)>addressed;});
+}
+function variantsOf(rid){return recipesState.filter(function(x){return x.variant_of===rid;});}
+function variantLineHTML(r){
+  var h='';
+  if(r.variant_of){
+    var p=getRecipe(r.variant_of);
+    if(p)h+='<div class="meta" style="margin-top:6px">A spin-off of <a href="#/recipe/'+p.id+'" style="color:#8A3524">'+esc(p.name)+'</a> - the original is unchanged.</div>';
+  }
+  var vs=variantsOf(r.id);
+  if(vs.length)h+='<div class="meta" style="margin-top:6px">Spin-offs: '+vs.map(function(v){return '<a href="#/recipe/'+v.id+'" style="color:#8A3524">'+esc(v.name)+'</a>';}).join(' &middot; ')+'</div>';
+  return h;
+}
+function improveBannerHTML(r){
+  var un=unaddressedFeedback(r.id);
+  if(!un.length)return '';
+  var names=[];un.forEach(function(f){var n=f.c.name||'Someone';if(names.indexOf(n)<0)names.push(n);});
+  return '<div class="improvebanner"><strong>Next version?</strong>'+esc(names.join(' and '))+' had '+(un.length===1?'an idea':'ideas')+' for this one. Open <b>Improve this recipe</b> below - an AI drafts the fix, you approve it, and the original is always kept.</div>';
+}
+function dietaryBrief(){
+  var parts=[];
+  HOUSEHOLD.forEach(function(p){if(p.needs&&p.needs.length)parts.push(p.name+' needs '+p.needs.join(', '));});
+  return parts.join('. ');
+}
+function aiBriefText(r){
+  var lines=[];
+  lines.push('You are improving a family recipe based on the family\'s own notes. Propose a concrete next version - real ingredient and method changes, not vague advice.');
+  lines.push('');
+  lines.push('RECIPE: '+r.name);
+  if(r.serves)lines.push('Serves: '+r.serves);
+  if(r.time)lines.push('Time: '+r.time);
+  if(r.tags&&r.tags.length)lines.push('Tags: '+r.tags.join(', '));
+  lines.push('');lines.push('INGREDIENTS');
+  r.ingredients.forEach(function(ing){lines.push('- '+ingText(ing,1)+(ing.optional?' (optional)':''));});
+  lines.push('');lines.push('STEPS');
+  r.steps.forEach(function(s,i){lines.push((i+1)+'. '+s);});
+  if(r.note){lines.push('');lines.push('COOK\'S NOTE: '+r.note);}
+  var db=dietaryBrief();
+  if(db){lines.push('');lines.push('DIETARY RULES (never break these): '+db+'. If this recipe carries a dietary tag (gluten-free, dairy-free, nightshade-free), the next version must keep it - use compliant substitutions and say what you swapped.');}
+  var rt=ratingsState[r.id]||{};
+  var rated=Object.keys(rt).filter(function(p){return rt[p]>0;});
+  var comments=commentState[r.id]||[];
+  if(rated.length||comments.length){
+    lines.push('');lines.push('FAMILY FEEDBACK');
+    if(rated.length)lines.push('Stars: '+rated.map(function(p){return p+' '+rt[p]+'/5';}).join(', '));
+    var fix=[],keep=[];
+    comments.forEach(function(c){(reviewIssue(c)?fix:keep).push((c.name||'Anonymous')+': '+c.text);});
+    if(fix.length){lines.push('TO FIX (complaints - address each one):');fix.forEach(function(x){lines.push('- '+x);});}
+    if(keep.length){lines.push('TO PRESERVE (praise or neutral notes - do not change these aspects):');keep.forEach(function(x){lines.push('- '+x);});}
+  }
+  lines.push('');lines.push('RULES');
+  lines.push('1. Fix what people complained about with specific changes: quantities, technique, timing, temperature.');
+  lines.push('2. Never change an aspect listed under TO PRESERVE - one person loving it outranks another disliking it; if they truly conflict, use "variant". List what you kept under "preserves".');
+  lines.push('3. If feedback pulls in two directions (someone loved what someone else disliked), set "mode" to "variant" so the original stays untouched and this becomes its own recipe. If everyone points the same way, use "update".');
+  lines.push('4. Keep it a weeknight family recipe: same style, no new appliances, no fussy steps.');
+  lines.push('5. Answer with ONLY the JSON object below. No markdown fences, no commentary.');
+  lines.push('');
+  lines.push('{');
+  lines.push(' "summary": "one sentence on what this version fixes",');
+  lines.push(' "mode": "update" or "variant",');
+  lines.push(' "mode_reason": "why that mode",');
+  lines.push(' "addresses": [{"who":"name","feedback":"their note","change":"what you changed for it"}],');
+  lines.push(' "preserves": ["what stayed the same and why"],');
+  lines.push(' "caution": "what to watch in the test batch",');
+  lines.push(' "recipe": {');
+  lines.push('  "name": "recipe name",');
+  lines.push('  "serves": "5",');
+  lines.push('  "time": "~30 min",');
+  lines.push('  "tags": ["gluten-free","dinner"],');
+  lines.push('  "ingredients": ["2 lb ground sirloin","1 onion, sliced"],');
+  lines.push('  "steps": ["first step","second step"],');
+  lines.push('  "note": "short cook\'s note for this version"');
+  lines.push(' }');
+  lines.push('}');
+  return lines.join('\n');
+}
+function copyAIBrief(rid){
+  var r=getRecipe(rid);if(!r)return;
+  copyText(aiBriefText(r),'Brief copied - paste it into any AI chat');
+}
+function parseProposal(text){
+  var t=String(text||'').trim();
+  t=t.replace(/^```[a-z]*\s*/i,'').replace(/```\s*$/,'').trim();
+  var i=t.indexOf('{'),j=t.lastIndexOf('}');
+  if(i<0||j<=i)return {ok:false,error:'No JSON found in that answer. Ask the AI to answer with the JSON object only, then paste the whole thing.'};
+  var o=null;
+  try{o=JSON.parse(t.slice(i,j+1));}catch(e){return {ok:false,error:'That JSON did not parse - copy the AI\'s whole answer and try again.'};}
+  var rc=o&&o.recipe;
+  if(!rc||typeof rc!=='object')return {ok:false,error:'The answer is missing the "recipe" object.'};
+  if(typeof rc.name!=='string'||!rc.name.trim())return {ok:false,error:'The proposal recipe has no name.'};
+  if(!Array.isArray(rc.ingredients)||!rc.ingredients.length)return {ok:false,error:'The proposal has no ingredients.'};
+  if(!Array.isArray(rc.steps)||!rc.steps.length)return {ok:false,error:'The proposal has no steps.'};
+  rc.name=rc.name.trim().slice(0,120);
+  rc.ingredients=rc.ingredients.map(function(x){return String(x).slice(0,200);}).filter(function(x){return x.trim();}).slice(0,60);
+  rc.steps=rc.steps.map(function(x){return String(x).slice(0,600);}).filter(function(x){return x.trim();}).slice(0,40);
+  if(!rc.ingredients.length||!rc.steps.length)return {ok:false,error:'The proposal ingredients or steps came through empty.'};
+  o.mode=o.mode==='variant'?'variant':'update';
+  if(!Array.isArray(o.addresses))o.addresses=[];
+  if(!Array.isArray(o.preserves))o.preserves=[];
+  return {ok:true,proposal:o};
+}
+function proposalToRecipe(r,p){
+  var rc=p.recipe;
+  var ings=rc.ingredients.map(parseIngLine).filter(Boolean);
+  var nr={name:rc.name,serves:String(rc.serves==null?(r.serves||''):rc.serves).slice(0,20),time:String(rc.time==null?(r.time||''):rc.time).slice(0,40),tags:Array.isArray(rc.tags)?parseTagsInput(rc.tags.join(',')):(r.tags||[]).slice(),ingredients:ings,steps:rc.steps,note:String(rc.note||'').slice(0,500)};
+  if(r.source)nr.source=r.source;
+  var est=estMacros(ings,nr.serves);
+  if(est&&!est.missed.length)nr.macros={cal:'~'+est.cal,protein:est.p+'g',carbs:est.c+'g',fat:est.f+'g',est:true};
+  else nr.macros=null;
+  return nr;
+}
+function droppedDietTags(r,nr){
+  var dropped=[];
+  (r.tags||[]).forEach(function(t){if(DIET_TAGS.indexOf(t)>=0&&nr.tags.indexOf(t)<0)dropped.push(t);});
+  return dropped;
+}
+function diffLines(oldA,newA){
+  var n=oldA.length,m=newA.length,i,j,dp=[];
+  for(i=0;i<=n;i++){var row=[];for(j=0;j<=m;j++)row.push(0);dp.push(row);}
+  for(i=n-1;i>=0;i--)for(j=m-1;j>=0;j--)dp[i][j]=oldA[i]===newA[j]?dp[i+1][j+1]+1:Math.max(dp[i+1][j],dp[i][j+1]);
+  var ops=[];i=0;j=0;
+  while(i<n&&j<m){
+    if(oldA[i]===newA[j]){ops.push({t:'=',s:oldA[i]});i++;j++;}
+    else if(dp[i+1][j]>=dp[i][j+1]){ops.push({t:'-',s:oldA[i]});i++;}
+    else{ops.push({t:'+',s:newA[j]});j++;}
+  }
+  while(i<n){ops.push({t:'-',s:oldA[i]});i++;}
+  while(j<m){ops.push({t:'+',s:newA[j]});j++;}
+  return ops;
+}
+function ingDiffHTML(r,nr){
+  var oldL=r.ingredients.map(function(ing){return ingText(ing,1)+(ing.optional?' (optional)':'');});
+  var newL=nr.ingredients.map(function(ing){return ingText(ing,1)+(ing.optional?' (optional)':'');});
+  var ops=diffLines(oldL.map(function(s){return s.toLowerCase();}),newL.map(function(s){return s.toLowerCase();}));
+  var paired=[],k=0;
+  while(k<ops.length){
+    var a=ops[k],b=ops[k+1];
+    if(a.t==='='){k++;continue;}
+    if(b&&a.t!==b.t){paired.push({t:'~',was:a.t==='-'?a.s:b.s,now:a.t==='+'?a.s:b.s});k+=2;continue;}
+    paired.push(a);k++;
+  }
+  var h='',changed=0,added=0,removed=0;
+  paired.forEach(function(op){
+    if(op.t==='~'){changed++;h+='<span class="diffchg"><span class="was">'+esc(op.was)+'</span> &rarr; '+esc(op.now)+'</span>';}
+    else if(op.t==='-'){removed++;h+='<span class="diffdel">'+esc(op.s)+'</span>';}
+    else if(op.t==='+'){added++;h+='<span class="diffadd">'+esc(op.s)+'</span>';}
+  });
+  if(!changed&&!added&&!removed)return '<p class="sub">Ingredients unchanged.</p>';
+  return '<div class="diffbox">'+h+'</div><p class="sub">'+(changed?changed+' changed':'')+(changed&&(added||removed)?', ':'')+(added?added+' added':'')+(added&&removed?', ':'')+(removed?removed+' removed':'')+'</p>';
+}
+function stepDiffSummary(r,nr){
+  var same=0,lim=Math.min(r.steps.length,nr.steps.length);
+  for(var i=0;i<lim;i++)if(String(r.steps[i]).trim().toLowerCase()===String(nr.steps[i]).trim().toLowerCase())same++;
+  return {oldN:r.steps.length,newN:nr.steps.length,same:same};
+}
+function metaDiffHTML(r,nr){
+  var rows=[];
+  if(String(r.serves||'')!==String(nr.serves||''))rows.push('Serves: '+esc(r.serves||'-')+' &rarr; '+esc(nr.serves||'-'));
+  if(String(r.time||'')!==String(nr.time||''))rows.push('Time: '+esc(r.time||'-')+' &rarr; '+esc(nr.time||'-'));
+  var rt=(r.tags||[]).join(', '),nt=(nr.tags||[]).join(', ');
+  if(rt!==nt)rows.push('Tags: '+esc(rt||'-')+' &rarr; '+esc(nt||'-'));
+  if(!rows.length)return '';
+  return '<p class="sub">'+rows.join(' &middot; ')+'</p>';
+}
+function proposalHTML(r,p){
+  var nr=proposalToRecipe(r,p);
+  var dropped=droppedDietTags(r,nr);
+  var h='<div class="proposal">';
+  h+='<h3 style="margin:14px 0 4px;color:#221C14;text-transform:none;letter-spacing:0;font-size:19px;font-family:Fraunces,Georgia,serif">Proposed: '+esc(nr.name)+' <span class="aimode">'+(p.mode==='variant'?'new recipe branch':'update')+'</span></h3>';
+  if(p.summary)h+='<p style="margin:4px 0">'+esc(p.summary)+'</p>';
+  h+='<p class="reviewhint">Untested until someone cooks it - run a small batch first.</p>';
+  if(dropped.length)h+='<p class="reviewhint" style="color:#8A3524">Heads up: this drops the '+esc(dropped.join(' and '))+' tag'+(dropped.length>1?'s':'')+' - check the substitutions before applying.</p>';
+  if(p.addresses.length){
+    h+='<h3>What it fixes</h3>';
+    p.addresses.slice(0,8).forEach(function(a){
+      h+='<div class="nexttime"><strong>'+esc(a.who||'Feedback')+'</strong><p>'+esc(a.feedback||'')+'</p><p>&rarr; '+esc(a.change||'')+'</p></div>';
+    });
+  }
+  if(p.preserves.length){
+    h+='<h3>What it keeps</h3><ul style="margin:4px 0 0;padding-left:20px">'+p.preserves.slice(0,8).map(function(x){return '<li>'+esc(x)+'</li>';}).join('')+'</ul>';
+  }
+  h+='<h3>Ingredients</h3>'+metaDiffHTML(r,nr)+ingDiffHTML(r,nr);
+  var sd=stepDiffSummary(r,nr);
+  h+='<h3>Steps</h3><p class="sub">'+sd.oldN+' &rarr; '+sd.newN+(sd.same?' ('+sd.same+' unchanged)':'')+'</p>'+
+    '<details class="reviewhelp"><summary>Read the new steps</summary><ol style="margin:6px 0 0;padding-left:20px">'+nr.steps.map(function(s){return '<li>'+esc(s)+'</li>';}).join('')+'</ol></details>';
+  if(nr.note)h+='<div class="note">'+esc(nr.note)+'</div>';
+  if(p.caution)h+='<p class="reviewhint">Watch out: '+esc(p.caution)+'</p>';
+  if(p.mode_reason)h+='<p class="reviewhint">Why '+(p.mode==='variant'?'a new recipe':'an update')+': '+esc(p.mode_reason)+'</p>';
+  if(nr.macros)h+='<p class="reviewhint">Macros per serving, re-estimated from the new ingredient list: '+esc(nr.macros.cal)+' cal, '+esc(nr.macros.protein)+' protein, '+esc(nr.macros.carbs)+' carbs, '+esc(nr.macros.fat)+' fat.</p>';
+  else h+='<p class="reviewhint">Macros can\'t be reliably re-estimated from these ingredients, so they\'re cleared on save - re-add them after the test batch.</p>';
+  h+='<div style="margin-top:12px">'+
+    '<button class="btn '+(p.mode==='update'?'primary':'')+'" onclick="applyProposal(\''+r.id+'\',\'update\')">Update this recipe</button>'+
+    '<button class="btn '+(p.mode==='variant'?'primary':'')+'" onclick="applyProposal(\''+r.id+'\',\'variant\')">Keep both - save as its own recipe</button>'+
+    '<button class="btn" onclick="discardProposal(\''+r.id+'\')">Discard</button></div>'+
+    '<p class="reviewhint">Update saves the current version into History (under Edit) first. Saving as its own recipe leaves this one exactly as it is.</p>';
+  h+='</div>';
+  return h;
+}
+function reviewAIAnswer(rid){
+  var el=document.getElementById('ai-answer');if(!el)return;
+  var st=improveUI[rid]=improveUI[rid]||{};
+  var p=parseProposal(el.value);
+  st.answer=el.value;st.open=true;
+  if(!p.ok){st.error=p.error;}
+  else{st.proposal=p.proposal;st.error=null;}
+  render(true);
+}
+function discardProposal(rid){
+  var st=improveUI[rid]=improveUI[rid]||{};
+  delete st.proposal;st.open=true;render(true);
+}
+function applyProposal(rid,mode){
+  var st=improveUI[rid];if(!st||!st.proposal)return;
+  var r=getRecipe(rid);if(!r)return;
+  var nr=proposalToRecipe(r,st.proposal);
+  var dropped=droppedDietTags(r,nr);
+  var warn=dropped.length?(' It drops the '+dropped.join(' and ')+' tag'+(dropped.length>1?'s':'')+'.'):'';
+  if(mode==='update'){
+    if(!confirm('Update the master recipe on every phone? The current version is saved in History first.'+warn))return;
+  }else if(dropped.length){
+    if(!confirm('This new recipe drops the '+dropped.join(' and ')+' tag'+(dropped.length>1?'s':'')+'. Save it anyway?'))return;
+  }
+  toast('Saving...');
+  pullRecipesOnce().then(function(){
+    var r2=getRecipe(rid);if(!r2)return;
+    var nr2=proposalToRecipe(r2,st.proposal);
+    var reason=String(st.proposal.summary||'AI next version').slice(0,160);
+    if(mode==='update'){
+      snapshotVersion(r2,reason);
+      r2.name=nr2.name;r2.serves=nr2.serves;r2.time=nr2.time;r2.tags=nr2.tags;r2.ingredients=nr2.ingredients;r2.steps=nr2.steps;r2.note=nr2.note;r2.macros=nr2.macros;
+      saveRecipes(r2.id);
+      improveUI[rid]={applied:'update'};
+      editMode=null;render(true);
+      toast('Updated - the previous version is in History (tap Edit)');
+    }else{
+      var v=nr2;
+      if(v.name===r2.name)v.name=r2.name+' (next version)';
+      v.id=uniqueId(slugify(v.name));
+      v.variant_of=r2.id;v.created=Date.now();
+      recipesState.push(v);
+      saveRecipes(v.id);
+      improveUI[rid]={};
+      location.hash='#/recipe/'+v.id;
+      toast('Saved as its own recipe - the original is untouched');
+    }
+  });
+}
+function snapshotVersion(r,reason){
+  if(!r.versions)r.versions=[];
+  r.versions.push({ts:Date.now(),name:r.name,reason:String(reason||'').slice(0,160),snapshot:{name:r.name,serves:r.serves,time:r.time,tags:(r.tags||[]).slice(),ingredients:JSON.parse(JSON.stringify(r.ingredients||[])),steps:(r.steps||[]).slice(),note:r.note||'',macros:r.macros||null}});
+  while(r.versions.length>5)r.versions.shift();
+}
+function restoreVersion(rid,idx){
+  if(!confirm('Restore that version on every phone? The current recipe is saved in History first.'))return;
+  toast('Restoring...');
+  pullRecipesOnce().then(function(){
+    var r=getRecipe(rid);if(!r||!r.versions||!r.versions[idx]){render(true);return;}
+    var s=r.versions[idx].snapshot;
+    snapshotVersion(r,'Before restoring "'+(r.versions[idx].name||'an earlier version')+'"');
+    r.name=s.name;r.serves=s.serves;r.time=s.time;r.tags=(s.tags||[]).slice();r.ingredients=JSON.parse(JSON.stringify(s.ingredients||[]));r.steps=(s.steps||[]).slice();r.note=s.note||'';r.macros=s.macros||null;
+    saveRecipes(r.id);
+    editMode=null;render(true);
+    toast('Restored - what you replaced is in History');
+  });
+}
+function versionsHTML(r){
+  if(!r.versions||!r.versions.length)return '';
+  var h='<h3>History</h3><div class="versionhist">';
+  r.versions.forEach(function(v,idx){
+    var d=new Date(v.ts||0);
+    h+='<div class="vrow"><b>'+esc(v.name||'Earlier version')+'</b><br><span class="meta">'+d.toLocaleDateString()+' - '+esc(v.reason||'')+'</span><br><button class="btn" onclick="restoreVersion(\''+r.id+'\','+idx+')">Restore this version</button></div>';
+  });
+  h+='</div><p class="reviewhint">Newest last. Restoring saves the current recipe here first.</p>';
+  return h;
+}
+function improvePanelHTML(r){
+  var st=improveUI[r.id]||{};
+  var h='<details class="improve"'+(st.open?' open':'')+' ontoggle="var s=improveUI[\''+r.id+'\']=improveUI[\''+r.id+'\']||{};s.open=this.open"><summary>Improve this recipe</summary>';
+  if(st.proposal){
+    h+=proposalHTML(r,st.proposal);
+  }else{
+    var fb=recipeFeedback(r.id);
+    h+='<p class="reviewhint">Turns the family notes into a concrete next version - real ingredient and method changes, not tips. You review the proposal before anything changes, and the original is always kept.</p>';
+    if(!fb.length)h+='<p class="reviewhint">No family notes on this one yet - the AI works from those, so add a note or two first.</p>';
+    h+='<div style="margin:8px 0"><button class="btn primary" onclick="copyAIBrief(\''+r.id+'\')">Copy the AI brief</button></div>';
+    if(st.error)h+='<p class="reviewhint" style="color:#8A3524">'+esc(st.error)+'</p>';
+    h+='<p class="reviewhint">The brief carries this recipe, everyone\'s notes, and the dietary rules to whatever AI you paste it into.</p>'+
+      '<textarea id="ai-answer" class="addarea" placeholder="Paste the AI\'s answer here (the JSON it gave you)">'+(st.answer?esc(st.answer):'')+'</textarea>'+
+      '<button class="btn" onclick="reviewAIAnswer(\''+r.id+'\')">Review the proposal</button>';
+  }
+  h+='</details>';
+  return h;
+}
 
 // ===== Custom shopping items =====
 var LS_CUSTOM='hm-custom-v1';
@@ -1309,11 +1628,13 @@ function viewList(){
   if(sortMode==='newest')shown.reverse();
   if(!shown.length){h+='<div class="empty">Nothing tagged '+esc(tagFilter)+' yet.</div>';}
   shown.forEach(function(r){
+    var _ideas=isPublicBook()?0:unaddressedFeedback(r.id).length;
     h+='<a class="cardlink" href="#/recipe/'+r.id+'"><div class="card">'+
       '<h2>'+esc(r.name)+'</h2>'+
       '<div class="meta">'+[r.serves?('Serves '+esc(r.serves)):'',esc(r.time||'')].filter(Boolean).join(' &middot; ')+'</div>'+
       '<div>'+tagRow(r)+'</div>'+
       '<div>'+householdRow(r)+'</div>'+
+      (_ideas?'<div><span class="avgchip" style="border-color:#46523A;color:#46523A">next-version idea'+(_ideas>1?'s':'')+' waiting</span></div>':'')+
       (!isPublicBook()&&getAvg(r.id)?'<div><span class="avgchip">&#9733; '+getAvg(r.id)+'</span></div>':'')+
       '</div></a>';
   });
@@ -1360,7 +1681,7 @@ function viewRecipe(id){
     '<h2>'+esc(r.name)+'</h2>'+
     '<div class="meta">'+[r.serves?('Serves '+esc(r.serves)):'',esc(r.time||'')].filter(Boolean).join(' &middot; ')+'</div>'+
     '<div>'+tagRow(r)+'</div>'+
-    '<div>'+householdRow(r)+'</div>'+
+    '<div>'+householdRow(r)+'</div>'+variantLineHTML(r)+
     (r.source?'<div class="meta" style="margin-top:6px"><a href="'+escAttr(r.source)+'" target="_blank" rel="noopener" style="color:#8A3524">Original recipe</a></div>':'')+
     macroRow(r)+
     '<div style="margin-top:14px">'+
@@ -1412,7 +1733,7 @@ function viewRecipe(id){
   if(editing){
     h+='<h3>Tags</h3><div class="tagwrap"><input id="edit-tags" class="ingedit" value="'+escAttr((r.tags||[]).join(', '))+'" autocomplete="off" oninput="tagSuggest(this)" onblur="hideTagSuggest(this)"><div class="tagsuggest" style="display:none"></div></div>'+
       '<div style="margin-top:4px"><button class="btn primary" onclick="saveTags(\''+r.id+'\')">Save tags for everyone</button></div>'+
-      '<div class="note"><textarea onchange="saveNoteEdit(\''+r.id+'\',this.value)">'+esc(note||'')+'</textarea></div>';
+      '<div class="note"><textarea onchange="saveNoteEdit(\''+r.id+'\',this.value)">'+esc(note||'')+'</textarea></div>'+versionsHTML(r);
   }else if(note){
     h+='<div class="note">'+esc(note)+'</div>';
   }
@@ -1436,7 +1757,9 @@ function viewRecipe(id){
   comments.forEach(function(c,idx){
     h+='<div class="comment"><span class="actions"><a href="javascript:sendComment(\''+r.id+'\','+idx+')">text in</a><button onclick="delComment(\''+r.id+'\','+idx+')">&times;</button></span><span class="who">'+esc(c.name)+'</span><br>'+esc(c.text)+reviewSuggestionHTML(c)+'</div>';
   });
+  h+=improveBannerHTML(r);
   h+='<div class="commentform"><input id="cm-name" placeholder="Name (optional)" maxlength="30"><input id="cm-text" placeholder="Add a note - the kids loved it, used 5 tbsp tamari..." maxlength="500"><details class="reviewhelp"><summary>What could be better? (optional)</summary><label for="cm-issue">Suggest a change for next time</label><select id="cm-issue">'+reviewIssueOptions()+'</select><p class="reviewhint">Practical starting points, not AI-generated advice. No recipe is changed.</p></details><button class="btn" onclick="addComment(\''+r.id+'\')">Add note</button></div>';
+  h+=improvePanelHTML(r);
 
   h+='<div style="margin-top:22px;padding-top:14px;border-top:1px solid #f0e7db;text-align:center"><button class="btn" style="color:#b03a2e;border-color:#e5b8b2" onclick="deleteRecipe(\''+r.id+'\')">Delete this recipe</button></div>';
 
