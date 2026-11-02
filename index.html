@@ -21,7 +21,7 @@
 <meta name="twitter:title" content="Hivner Meals - the family recipe book">
 <meta name="twitter:description" content="The Hivner family cookbook: shared recipes, a shopping list, and cook-with-what-you-have search, synced across the family.">
 <meta name="twitter:image" content="https://hivner-meals.chivner.com/3-home-meals-og.png?v=27">
-<!-- v4.15 - public recipe pages get a quantity stepper (device-only, master recipe unchanged); shopping list picks come from ingredients with a per-ingredient check, step-text adds removed; copy the whole shopping list as text | v4.14 - link previews: Open Graph and Twitter card metadata with a 1200x630 preview image on the custom domain, no functional change | v4.13 - cook with what you have: search the book from the home view by ingredient, recipe name, or meal tag; nudge chips show the ways to search; ingredient hits rank by what you typed and show what each recipe still needs, pantry staples do not count as missing | v4.12 - retired family links get a clear "link was retired" state and a paste-to-connect box on the home view, so the base URL and the old key no longer strand a phone in local-only mode | v4.11 - flexible recipe scaling: - / + stepper in quarter steps (0.25x to 4x), fraction glyphs to the eighth, sub-1 quantities stay singular | v4.10 - edge fades on the filter chip swiper | v4.9 - declutter home header: tagline hidden, filters single swipeable row, slimmer add button | v4.8 - Sunday Cookbook reskin: Fraunces/Newsreader type, editorial hairlines, oxblood/olive palette; CSS + fonts only, zero functional change | v4.7 - seed-on-error guard: only seed the blob on a confirmed empty 200 (transient Supabase errors no longer clobber the book); background sync renders defer while a field has typed input; household slug rotated | v4.6 - fix sync clobbering: pushes only send locally-changed keys, pulls never wipe unsent local changes -->
+<!-- v4.15 - public recipe pages get a quantity stepper (device-only, master recipe unchanged; macros/steps flagged as base 1x while scaled); shopping list picks come from ingredients with a per-ingredient check that syncs for signed-in family like the shared list and stays device-local for visitors, step-text adds removed; copy the whole shopping list as text | v4.14 - link previews: Open Graph and Twitter card metadata with a 1200x630 preview image on the custom domain, no functional change | v4.13 - cook with what you have: search the book from the home view by ingredient, recipe name, or meal tag; nudge chips show the ways to search; ingredient hits rank by what you typed and show what each recipe still needs, pantry staples do not count as missing | v4.12 - retired family links get a clear "link was retired" state and a paste-to-connect box on the home view, so the base URL and the old key no longer strand a phone in local-only mode | v4.11 - flexible recipe scaling: - / + stepper in quarter steps (0.25x to 4x), fraction glyphs to the eighth, sub-1 quantities stay singular | v4.10 - edge fades on the filter chip swiper | v4.9 - declutter home header: tagline hidden, filters single swipeable row, slimmer add button | v4.8 - Sunday Cookbook reskin: Fraunces/Newsreader type, editorial hairlines, oxblood/olive palette; CSS + fonts only, zero functional change | v4.7 - seed-on-error guard: only seed the blob on a confirmed empty 200 (transient Supabase errors no longer clobber the book); background sync renders defer while a field has typed input; household slug rotated | v4.6 - fix sync clobbering: pushes only send locally-changed keys, pulls never wipe unsent local changes -->
 <style>
   *{box-sizing:border-box}
   body{font-family:"Newsreader",Georgia,"Times New Roman",serif;background:#F7F2E9;color:#221C14;line-height:1.5;margin:0;padding:0 0 48px;-webkit-font-smoothing:antialiased}
@@ -668,7 +668,10 @@ function toggleIngPick(rid,idx){
   if(pickState[rid][idx]){delete pickState[rid][idx];}
   else{pickState[rid][idx]=true;toast('Added to shopping list');}
   if(!Object.keys(pickState[rid]).length)delete pickState[rid];
-  savePick();render(true);
+  savePick();
+  // Signed-in family picks sync like the rest of the shared list; visitor picks stay on the device.
+  if(HH_KEY){pickRids[rid]=true;markDirty('picks');}
+  cloudPush();render(true);
 }
 
 var LS_COMMENTS='hm-comments-v1';
@@ -743,14 +746,15 @@ function pickTag(e){
   el.focus();
 }
 function hideTagSuggest(el){var box=el.parentNode.querySelector('.tagsuggest');if(box)setTimeout(function(){box.style.display='none';},200);}
-function macroRow(r){
+function macroRow(r,scaled){
   if(!r.macros)return '';
   return '<div class="macros">'+
     '<div class="macro"><b>'+esc(r.macros.cal)+'</b><span>cal</span></div>'+
     '<div class="macro"><b>'+esc(r.macros.protein)+'</b><span>protein</span></div>'+
     '<div class="macro"><b>'+esc(r.macros.carbs)+'</b><span>carbs</span></div>'+
     '<div class="macro"><b>'+esc(r.macros.fat)+'</b><span>fat</span></div></div>'+
-    (r.macros.est?'<div class="macroest">estimated from ingredients</div>':'');
+    (r.macros.est?'<div class="macroest">estimated from ingredients</div>':'')+
+    (scaled?'<div class="macroest">Macros are for the base recipe (1x).</div>':'');
 }
 function toast(msg){
   var t=document.getElementById('toast');t.textContent=msg;t.classList.add('show');
@@ -1362,7 +1366,7 @@ function viewRecipe(id){
     '<div>'+tagRow(r)+'</div>'+
     '<div>'+householdRow(r)+'</div>'+
     (r.source?'<div class="meta" style="margin-top:6px"><a href="'+escAttr(r.source)+'" target="_blank" rel="noopener" style="color:#8A3524">Original recipe</a></div>':'')+
-    macroRow(r)+
+    macroRow(r,scale!==1)+
     '<div style="margin-top:14px">'+
       '<button class="btn primary" onclick="sendRecipe(\''+r.id+'\')">Send as text</button>'+
       '<button class="btn" onclick="copyRecipe(\''+r.id+'\')">Copy</button>'+
@@ -1396,7 +1400,7 @@ function viewRecipe(id){
   h+='</ul>';
 
   // Steps (cooking mode)
-  h+='<h3>Steps</h3><div class="cooklist">'+
+  h+='<h3>Steps</h3>'+(scale!==1?'<p class="meta">Steps use the base amounts (1x) - adjust as you cook.</p>':'')+'<div class="cooklist">'+
     r.steps.map(function(st,idx){
       var done=isStepDone(r.id,idx);
       return '<div class="cookitem'+(done?' done':'')+'" onclick="toggleStep(\''+r.id+'\','+idx+')">'+
@@ -1584,9 +1588,9 @@ function setSyncUI(){
   el.className='syncstatus'+(syncOnline?' ok':'');
 }
 var LS_DIRTY='hm-dirty-v1';
-var dirtyKeys={},commentRids={},recipeDirtyIds={},deletedRecipeIds={};
-function loadDirty(){try{var s=JSON.parse(localStorage.getItem(LS_DIRTY));if(s&&s.keys){dirtyKeys=s.keys;commentRids=s.rids||{};recipeDirtyIds=s.recipeIds||{};deletedRecipeIds=s.deletedRecipeIds||{};}}catch(e){}}
-function saveDirty(){try{localStorage.setItem(LS_DIRTY,JSON.stringify({keys:dirtyKeys,rids:commentRids,recipeIds:recipeDirtyIds,deletedRecipeIds:deletedRecipeIds}));}catch(e){}}
+var dirtyKeys={},commentRids={},recipeDirtyIds={},deletedRecipeIds={},pickRids={};
+function loadDirty(){try{var s=JSON.parse(localStorage.getItem(LS_DIRTY));if(s&&s.keys){dirtyKeys=s.keys;commentRids=s.rids||{};recipeDirtyIds=s.recipeIds||{};deletedRecipeIds=s.deletedRecipeIds||{};pickRids=s.pickRids||{};}}catch(e){}}
+function saveDirty(){try{localStorage.setItem(LS_DIRTY,JSON.stringify({keys:dirtyKeys,rids:commentRids,recipeIds:recipeDirtyIds,deletedRecipeIds:deletedRecipeIds,pickRids:pickRids}));}catch(e){}}
 function markDirty(k){dirtyKeys[k]=true;saveDirty();}
 loadDirty();
 function cloudPush(){
@@ -1595,8 +1599,8 @@ function cloudPush(){
   pushTimer=setTimeout(function(){
     var keys=Object.keys(dirtyKeys);
     if(!keys.length)return;
-    var pushedRids=Object.keys(commentRids),pushedCanon={},pushedRecipeIds=Object.keys(recipeDirtyIds),pushedDeletedIds=Object.keys(deletedRecipeIds),pushedRecipeCanon={};
-    var blob={recipes:recipesState,ratings:ratingsState,comments:commentState,shop:state,custom:customState};
+    var pushedRids=Object.keys(commentRids),pushedCanon={},pushedRecipeIds=Object.keys(recipeDirtyIds),pushedDeletedIds=Object.keys(deletedRecipeIds),pushedRecipeCanon={},pushedPickRids=Object.keys(pickRids),pushedPickCanon={};
+    var blob={recipes:recipesState,ratings:ratingsState,comments:commentState,shop:state,custom:customState,picks:pickState};
     var now=new Date().toISOString();
     fetch(SUPA_URL+'/rest/v1/household_state?slug=eq.'+encodeURIComponent(HH_KEY)+'&select=state',{headers:cloudHeaders()})
     .then(function(r){return r.ok?r.json():[];})
@@ -1604,7 +1608,7 @@ function cloudPush(){
       var remote=(rows&&rows.length&&rows[0].state)||{};
       if(remote.moved){
         try{localStorage.removeItem('hm-household');}catch(e){}
-        HH_KEY=null;linkRetired=true;syncOnline=false;dirtyKeys={};commentRids={};recipeDirtyIds={};deletedRecipeIds={};saveDirty();setSyncUI();requestRender();return;
+        HH_KEY=null;linkRetired=true;syncOnline=false;dirtyKeys={};commentRids={};recipeDirtyIds={};deletedRecipeIds={};pickRids={};saveDirty();setSyncUI();requestRender();return;
       }
       var merged={};
       Object.keys(remote).forEach(function(k){merged[k]=remote[k];});
@@ -1626,6 +1630,17 @@ function cloudPush(){
             if(local){byId[id]=local;pushedRecipeCanon[id]=canon(local);}
           });
           merged.recipes=Object.keys(byId).map(function(id){return byId[id];});
+        }else if(k==='picks'){
+          // Per-recipe merge: only this phone's changed recipes overwrite; the other phone's
+          // picks on other recipes survive. Within one recipe, latest push wins (same as comments).
+          var mp={},rp=remote.picks||{};
+          Object.keys(rp).forEach(function(rid){mp[rid]=rp[rid];});
+          pushedPickRids.forEach(function(rid){
+            if(pickState[rid]&&Object.keys(pickState[rid]).length){mp[rid]=pickState[rid];}
+            else{delete mp[rid];}
+            pushedPickCanon[rid]=canon(mp[rid]||null);
+          });
+          merged.picks=mp;
         }else{
           merged[k]=blob[k];
         }
@@ -1634,7 +1649,7 @@ function cloudPush(){
       return fetch(SUPA_URL+'/rest/v1/household_state',{method:'POST',headers:Object.assign(cloudHeaders(),{'Prefer':'resolution=merge-duplicates'}),body:JSON.stringify({slug:HH_KEY,state:merged,updated_at:now})})
       .then(function(r2){
         if(r2.ok){
-          keys.forEach(function(k){if(k!=='comments'&&k!=='recipes')delete dirtyKeys[k];});
+          keys.forEach(function(k){if(k!=='comments'&&k!=='recipes'&&k!=='picks')delete dirtyKeys[k];});
           pushedRecipeIds.forEach(function(id){
             var local=null;recipesState.some(function(r){if(r.id===id){local=r;return true;}return false;});
             if(local&&canon(local)===pushedRecipeCanon[id])delete recipeDirtyIds[id];
@@ -1645,6 +1660,11 @@ function cloudPush(){
           if(!Object.keys(recipeDirtyIds).length&&!Object.keys(deletedRecipeIds).length)delete dirtyKeys.recipes;
           pushedRids.forEach(function(rid){if(canon(commentState[rid]||[])===pushedCanon[rid])delete commentRids[rid];});
           if(!Object.keys(commentRids).length)delete dirtyKeys['comments'];
+          pushedPickRids.forEach(function(rid){
+            var cur=(pickState[rid]&&Object.keys(pickState[rid]).length)?pickState[rid]:null;
+            if(canon(cur)===pushedPickCanon[rid])delete pickRids[rid];
+          });
+          if(!Object.keys(pickRids).length)delete dirtyKeys['picks'];
           saveDirty();
           // Force the next pull to apply the merged server snapshot locally. Otherwise this phone
           // remembers the server JSON without ever rendering recipes contributed by the other phone.
@@ -1690,7 +1710,7 @@ function cloudPull(seedIfEmpty,retried){
   .then(function(r){if(r.status===401||r.status===403){if(isSignedIn()&&!retried){refreshAuth().then(function(ok){if(ok)cloudPull(seedIfEmpty,true);else retireKey();});throw new Error('reauth');}retireKey();throw new Error('key retired');}if(!r.ok)throw new Error('http '+r.status);return r.json();})
   .then(function(rows){
     syncTried=true;syncOnline=true;
-    if(!rows||!rows.length){if(seedIfEmpty){['recipes','ratings','comments','shop','custom'].forEach(function(k){dirtyKeys[k]=true;});saveDirty();cloudPush();}setSyncUI();return;}
+    if(!rows||!rows.length){if(seedIfEmpty){['recipes','ratings','comments','shop','custom','picks'].forEach(function(k){dirtyKeys[k]=true;});saveDirty();cloudPush();}setSyncUI();return;}
     var row=rows[0];var rowJSON=canon(row.state||{});
     if(row.state&&row.state.moved){
       try{localStorage.removeItem('hm-household');}catch(e){}
@@ -1711,6 +1731,7 @@ function cloudPull(seedIfEmpty,retried){
         if(b.comments&&!dirtyKeys.comments){commentState=b.comments;localStorage.setItem(LS_COMMENTS,JSON.stringify(commentState));}
         if(b.shop&&!dirtyKeys.shop){state=b.shop;localStorage.setItem(LS_KEY,JSON.stringify(state));updateCartBadge();}
         if(b.custom&&!dirtyKeys.custom){customState=b.custom.filter(function(c){return !isStepDump(c);});localStorage.setItem(LS_CUSTOM,JSON.stringify(customState));}
+        if(b.picks&&!dirtyKeys.picks){pickState=b.picks;localStorage.setItem(LS_PICK,JSON.stringify(pickState));}
         if(b.recipes&&b.recipes.length&&!dirtyKeys.recipes){
           recipesState=b.recipes;
           if(addBundledRecipes(recipesState))dirtyKeys.recipes=true;
@@ -1816,7 +1837,7 @@ function viewSharedData(p,cookId){
     '<div class="meta">'+[str(p.s)?('Serves '+esc(str(p.s))):'',esc(str(p.t))].filter(Boolean).join(' &middot; ')+(x!==1?' &middot; scaled '+esc(formatScale(x))+'x':'')+'</div>'+
     '<div>'+tagRow({tags:list(p.g)})+'</div>'+
     (/^https?:\/\//i.test(src)?'<div class="meta" style="margin-top:6px"><a href="'+escAttr(src)+'" target="_blank" rel="noopener noreferrer" style="color:#8A3524">Original recipe</a></div>':'')+
-    (m?macroRow({macros:{cal:str(m[0]),protein:str(m[1]),carbs:str(m[2]),fat:str(m[3]),est:!!m[4]}}):'');
+    (m?macroRow({macros:{cal:str(m[0]),protein:str(m[1]),carbs:str(m[2]),fat:str(m[3]),est:!!m[4]}},x*(getAdj(cookId||('shared:'+str(p.n))).scale||1)!==1):'');
   var scaleKey=cookId||('shared:'+str(p.n));
   var vscale=getAdj(scaleKey).scale||1;
   var pubInList=cookId?state.recipes.indexOf(cookId)>=0:false;
@@ -1847,14 +1868,14 @@ function viewSharedData(p,cookId){
   if(steps.length){
     h+='<h3>Steps</h3>';
     if(cookId){
-      h+='<p class="meta">Check off steps as you cook. Progress stays on this phone.</p><div class="cooklist publiccook">'+steps.map(function(t,idx){
+      h+='<p class="meta">Check off steps as you cook. Progress stays on this phone.'+(x*vscale!==1?' Steps use the base amounts (1x) - adjust as you cook.':'')+'</p><div class="cooklist publiccook">'+steps.map(function(t,idx){
         var done=isStepDone(cookId,idx);
         return '<label class="cookitem'+(done?' done':'')+'">'+
           '<input type="checkbox" aria-label="Step '+(idx+1)+'" data-recipe="'+escAttr(cookId)+'" onchange="toggleStep(this.dataset.recipe,'+idx+')" '+(done?'checked':'')+'>'+
           '<span class="stepnum">'+(idx+1)+'</span><span class="steptext">'+esc(t)+'</span></label>';
       }).join('')+'</div><div style="margin-top:12px"><button class="btn" data-recipe="'+escAttr(cookId)+'" onclick="resetSteps(this.dataset.recipe)">Reset all steps</button></div>';
     }else{
-      h+='<ol>'+steps.map(function(t){return '<li>'+esc(t)+'</li>';}).join('')+'</ol>';
+      h+=(x*vscale!==1?'<p class="meta">Steps use the base amounts (1x) - adjust as you cook.</p>':'')+'<ol>'+steps.map(function(t){return '<li>'+esc(t)+'</li>';}).join('')+'</ol>';
     }
   }
   if(note)h+='<h3>Note</h3><p>'+esc(note)+'</p>';
