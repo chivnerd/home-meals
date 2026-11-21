@@ -158,11 +158,12 @@
   .plandiet{display:flex;flex-wrap:wrap;gap:8px 16px;margin:4px 0}
   .plandiet .tagchip{padding:8px 1px 4px;font-size:12px}
   .plangrid{margin-top:6px}
-  .planday{border-bottom:1px solid #DCD3C2;padding:12px 0}
-  .planday b{font-family:"Fraunces",Georgia,serif;font-size:17px;font-weight:600;display:block;margin-bottom:6px}
-  .planslot{display:flex;align-items:center;gap:10px;margin:6px 0}
-  .planslot label{width:78px;font-size:11px;text-transform:uppercase;letter-spacing:.14em;color:#6E6558;flex:none}
-  .planslot select{flex:1;min-width:0;min-height:44px;font:inherit;font-size:16px;padding:8px;border:1px solid #DCD3C2;border-radius:3px;background:#FBF8F1;color:#221C14}
+  .planmeal{display:flex;align-items:center;gap:10px;border-bottom:1px solid #DCD3C2;padding:12px 0}
+  .planmeal .pm-main{flex:1;min-width:0}
+  .planmeal .pm-main a{font-family:"Fraunces",Georgia,serif;font-size:17px;font-weight:600;color:#221C14;text-decoration:none}
+  .planmeal .pm-x{width:44px;height:44px;border:none;background:none;font-size:24px;color:#6E6558;cursor:pointer}
+  .planmeal .pm-add{margin:0}
+  .btn.primary{background:#8A3524;color:#F7F2E9;border-color:#8A3524}
   .plancheck{display:flex;align-items:center;gap:8px;font-size:14px;color:#6E6558;margin-top:10px}
   .plancheck input{width:20px;height:20px}
 </style>
@@ -1957,120 +1958,108 @@ window.addEventListener('popstate',function(){
 });
 
 // ===== Meal plan (this device only) =====
-// A small weekly planner: how many people, which dietary options apply, and what is
-// for each meal. Stored in this browser only (hm-plan); nothing is sent anywhere and
-// it does not touch the shared book or the shopping list.
-var PLAN_DAYS=['Monday','Tuesday','Wednesday','Thursday','Friday','Saturday','Sunday'];
-var PLAN_SLOTS=['breakfast','lunch','dinner'];
+// Decide the meals for the week, then turn them into groceries. Headcount and dietary
+// options narrow the ideas; each picked meal goes onto the existing shopping list scaled
+// to the headcount. The plan itself lives in this browser only (hm-plan-v2).
 var PLAN_DIETS=['gluten-free','dairy-free','nightshade-free','vegetarian','vegan','nut-free','egg-free'];
 function planDefaults(){
   var d=[];
   HOUSEHOLD.forEach(function(m){(m.needs||[]).forEach(function(n){if(d.indexOf(n)<0)d.push(n);});});
-  return {people:HOUSEHOLD.length,diets:d,slots:['dinner'],showAll:false,meals:{}};
+  return {people:HOUSEHOLD.length,diets:d,showAll:false,meals:[],seed:0};
 }
 function loadPlan(){
   var def=planDefaults();
-  try{var p=JSON.parse(localStorage.getItem('hm-plan'));
+  try{var p=JSON.parse(localStorage.getItem('hm-plan-v2'));
     if(p&&typeof p==='object'){
       return {people:Math.min(20,Math.max(1,parseInt(p.people,10)||def.people)),
         diets:Array.isArray(p.diets)?p.diets.filter(function(x){return typeof x==='string';}):def.diets,
-        slots:Array.isArray(p.slots)&&p.slots.length?p.slots.filter(function(x){return PLAN_SLOTS.indexOf(x)>=0;}):def.slots,
-        showAll:!!p.showAll,meals:(p.meals&&typeof p.meals==='object')?p.meals:{}};
+        showAll:!!p.showAll,
+        meals:Array.isArray(p.meals)?p.meals.filter(function(x){return typeof x==='string';}):[],seed:0};
     }}catch(e){}
   return def;
 }
 var planState=loadPlan();
-function savePlan(){try{localStorage.setItem('hm-plan',JSON.stringify(planState));}catch(e){}}
+function savePlan(){try{localStorage.setItem('hm-plan-v2',JSON.stringify({people:planState.people,diets:planState.diets,showAll:planState.showAll,meals:planState.meals}));}catch(e){}}
 function planDietChoices(){
   var out=PLAN_DIETS.slice();
   planState.diets.forEach(function(d){if(out.indexOf(d)<0)out.push(d);});
   return out;
 }
-function planRecipes(){
-  return recipesState.filter(function(r){
-    if(planState.showAll)return true;
-    var t=r.tags||[];
-    return planState.diets.every(function(d){return t.indexOf(d)>=0;});
-  });
+function planMatches(r){
+  if(planState.showAll)return true;
+  var t=r.tags||[];
+  return planState.diets.every(function(d){return t.indexOf(d)>=0;});
 }
-function planSet(k,v){
-  if(k==='people')planState.people=Math.min(20,Math.max(1,planState.people+v));
-  savePlan();render(true);
+function planRecipe(id){var r=null;recipesState.forEach(function(x){if(x.id===id)r=x;});return r;}
+function planScaleFor(r){
+  var sv=parseInt(r.serves,10);
+  if(!(sv>0))return 1;
+  return Math.min(4,Math.max(0.25,Math.round(planState.people/sv*4)/4));
 }
+function planStep(v){planState.people=Math.min(20,Math.max(1,planState.people+v));savePlan();render(true);}
 function planToggleDiet(d){
   var i=planState.diets.indexOf(d);
   if(i>=0)planState.diets.splice(i,1);else planState.diets.push(d);
   savePlan();render(true);
 }
-function planToggleSlot(s){
-  var i=planState.slots.indexOf(s);
-  if(i>=0){if(planState.slots.length>1)planState.slots.splice(i,1);}
-  else planState.slots.push(s);
-  savePlan();render(true);
-}
 function planShowAll(on){planState.showAll=!!on;savePlan();render(true);}
-function planPick(day,slot,val){
-  var k=day+'|'+slot;
-  if(val)planState.meals[k]=val;else delete planState.meals[k];
-  savePlan();
+function planAdd(id){if(planState.meals.indexOf(id)<0)planState.meals.push(id);savePlan();render(true);}
+function planRemove(id){var i=planState.meals.indexOf(id);if(i>=0)planState.meals.splice(i,1);savePlan();render(true);}
+function planShuffle(){planState.seed=(planState.seed||0)+1;render(true);}
+function planIdeas(){
+  var pool=recipesState.filter(function(r){return planMatches(r)&&planState.meals.indexOf(r.id)<0;});
+  // Deterministic shuffle per tap: sort by a hash of id + seed. Seed 0 keeps book order (newest first).
+  if(planState.seed){
+    var sd=planState.seed;
+    function hv(str){var h=sd*2654435761>>>0;for(var i=0;i<str.length;i++){h=(h*31+str.charCodeAt(i))>>>0;}return h;}
+    pool=pool.slice().sort(function(a,b){return hv(a.id)-hv(b.id);});
+  }
+  return pool;
+}
+function planToList(){
+  var n=0;
+  planState.meals.forEach(function(id){
+    var r=planRecipe(id);if(!r)return;
+    var a=getAdj(id);a.scale=planScaleFor(r);
+    if(state.recipes.indexOf(id)<0)state.recipes.push(id);
+    n++;
+  });
+  if(!n){toast('Pick a meal first');return;}
+  saveAdj();saveState(state);updateCartBadge();
+  toast(n+' meal'+(n===1?'':'s')+' added to the shopping list');
+  render(true);
 }
 function planClear(){
-  if(!confirm('Clear the meals for this week? People and dietary options stay.'))return;
-  planState.meals={};savePlan();render(true);
-}
-function planMealLabel(v){
-  if(!v)return '';
-  if(v==='_leftovers')return 'Leftovers';
-  if(v==='_out')return 'Eating out';
-  var r=null;recipesState.forEach(function(x){if(x.id===v)r=x;});
-  return r?r.name:'';
-}
-function planCopy(){
-  var lines=['Meal plan for '+planState.people+' '+(planState.people===1?'person':'people')];
-  if(planState.diets.length)lines.push('Dietary: '+planState.diets.join(', '));
-  lines.push('');
-  PLAN_DAYS.forEach(function(d){
-    var parts=[];
-    PLAN_SLOTS.forEach(function(s){
-      if(planState.slots.indexOf(s)<0)return;
-      var m=planMealLabel(planState.meals[d+'|'+s]);
-      if(m)parts.push((planState.slots.length>1?s.charAt(0).toUpperCase()+s.slice(1)+': ':'')+m);
-    });
-    if(parts.length)lines.push(d+' - '+parts.join('; '));
-  });
-  var txt=lines.join('\n');
-  if(navigator.clipboard&&navigator.clipboard.writeText){navigator.clipboard.writeText(txt).then(function(){toast('Plan copied');},function(){toast('Could not copy');});}
-  else toast('Copy is not available here');
+  if(!planState.meals.length)return;
+  if(!confirm('Clear this week\'s meals? Your shopping list is not changed.'))return;
+  planState.meals=[];savePlan();render(true);
 }
 function viewPlan(){
-  var h='<h1>Meal plan</h1><p class="meta">Plan the week. Saved on this device only.</p>';
-  h+='<h3>Feeding</h3><div class="planrow"><button class="step" aria-label="Fewer people" onclick="planSet(\'people\',-1)">&minus;</button><span class="pcount">'+planState.people+'</span><button class="step" aria-label="More people" onclick="planSet(\'people\',1)">+</button><span class="meta">'+(planState.people===1?'person':'people')+' this week</span></div>';
+  var h='<h1>Meal plan</h1><p class="meta">Pick the week\'s meals, then send the groceries to your shopping list.</p>';
+  h+='<h3>Feeding</h3><div class="planrow"><button class="step" aria-label="Fewer people" onclick="planStep(-1)">&minus;</button><span class="pcount">'+planState.people+'</span><button class="step" aria-label="More people" onclick="planStep(1)">+</button><span class="meta">'+(planState.people===1?'person':'people')+' this week</span></div>';
   h+='<h3>Dietary options</h3><div class="plandiet">'+planDietChoices().map(function(d){
     return '<button class="tagchip'+(planState.diets.indexOf(d)>=0?' on':'')+'" onclick="planToggleDiet(\''+escAttr(d)+'\')">'+esc(d)+'</button>';}).join('')+'</div>';
-  var avail=planRecipes();
-  h+='<label class="plancheck"><input type="checkbox"'+(planState.showAll?' checked':'')+' onchange="planShowAll(this.checked)"> Also list recipes without these tags</label>';
-  h+='<h3>Meals to plan</h3><div class="plandiet">'+PLAN_SLOTS.map(function(s){
-    return '<button class="tagchip'+(planState.slots.indexOf(s)>=0?' on':'')+'" onclick="planToggleSlot(\''+s+'\')">'+s+'</button>';}).join('')+'</div>';
-  h+='<h3>The week</h3>';
-  if(!avail.length)h+='<p class="meta">No recipes carry all of these tags yet. Tick the box above to see every recipe, or adjust the options.</p>';
-  h+='<div class="plangrid">';
-  var planned=0;
-  PLAN_DAYS.forEach(function(d){
-    h+='<div class="planday"><b>'+d+'</b>';
-    PLAN_SLOTS.forEach(function(s){
-      if(planState.slots.indexOf(s)<0)return;
-      var cur=planState.meals[d+'|'+s]||'';
-      if(cur)planned++;
-      var opts='<option value="">Not planned</option><option value="_leftovers"'+(cur==='_leftovers'?' selected':'')+'>Leftovers</option><option value="_out"'+(cur==='_out'?' selected':'')+'>Eating out</option>';
-      var seen=false;
-      avail.forEach(function(r){if(r.id===cur)seen=true;opts+='<option value="'+escAttr(r.id)+'"'+(r.id===cur?' selected':'')+'>'+esc(r.name)+'</option>';});
-      if(cur&&cur.charAt(0)!=='_'&&!seen){var lb=planMealLabel(cur);if(lb)opts+='<option value="'+escAttr(cur)+'" selected>'+esc(lb)+'</option>';}
-      h+='<div class="planslot"><label for="pl-'+d+s+'">'+s+'</label><select id="pl-'+d+s+'" onchange="planPick(\''+d+'\',\''+s+'\',this.value)">'+opts+'</select></div>';
+  h+='<label class="plancheck"><input type="checkbox"'+(planState.showAll?' checked':'')+' onchange="planShowAll(this.checked)"> Also suggest recipes without these tags</label>';
+  h+='<h3>This week\'s meals</h3>';
+  if(!planState.meals.length){h+='<p class="meta">Nothing picked yet. Add meals from the ideas below.</p>';}
+  else{
+    planState.meals.forEach(function(id){
+      var r=planRecipe(id);if(!r)return;
+      var sc=planScaleFor(r),sv=parseInt(r.serves,10);
+      var note=(sv>0)?('Recipe serves '+sv+(sc!==1?' &middot; scaled '+formatScale(sc)+'x for '+planState.people:' &middot; no scaling needed')):'Serving size not set, not scaled';
+      h+='<div class="planmeal"><div class="pm-main"><a href="#/recipe/'+escAttr(r.id)+'">'+esc(r.name)+'</a><div class="meta">'+note+'</div></div><button class="pm-x" aria-label="Remove '+escAttr(r.name)+'" onclick="planRemove(\''+escAttr(r.id)+'\')">&times;</button></div>';
     });
-    h+='</div>';
-  });
-  h+='</div>';
-  h+='<div style="margin-top:14px"><button class="btn" onclick="planCopy()">Copy plan</button><button class="btn" onclick="planClear()">Clear meals</button></div>';
+    h+='<div style="margin-top:14px"><button class="btn primary" onclick="planToList()">Add to shopping list</button><button class="btn" onclick="planClear()">Clear</button></div>';
+    h+='<p class="meta">Adds each meal with its ingredients scaled for '+planState.people+'. Checked-off items and notes on the list stay as they are.</p>';
+  }
+  var ideas=planIdeas();
+  h+='<h3>Ideas</h3>';
+  if(!ideas.length){h+='<p class="meta">'+(recipesState.length?'No more recipes match these options. Loosen the dietary options or tick the box above.':'No recipes yet.')+'</p>';}
+  else{
+    h+=ideas.slice(0,5).map(function(r){
+      return '<div class="planmeal"><div class="pm-main"><a href="#/recipe/'+escAttr(r.id)+'">'+esc(r.name)+'</a><div class="meta">'+[r.serves?('Serves '+esc(r.serves)):'',esc(r.time||'')].filter(Boolean).join(' &middot; ')+'</div></div><button class="btn pm-add" onclick="planAdd(\''+escAttr(r.id)+'\')">Add</button></div>';}).join('');
+    if(ideas.length>5)h+='<button class="btn" onclick="planShuffle()">Show other ideas</button>';
+  }
   return h;
 }
 updateCartBadge();
