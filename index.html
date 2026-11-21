@@ -1991,11 +1991,16 @@ function planMatches(r){
   return planState.diets.every(function(d){return t.indexOf(d)>=0;});
 }
 function planRecipe(id){var r=null;recipesState.forEach(function(x){if(x.id===id)r=x;});return r;}
+// Round UP to the next quarter step so the recipe never makes fewer servings than the
+// headcount. Capped at the stepper's 4x; planServes() tells the truth when the cap bites.
 function planScaleFor(r){
   var sv=parseInt(r.serves,10);
-  if(!(sv>0))return 1;
-  return Math.min(4,Math.max(0.25,Math.round(planState.people/sv*4)/4));
+  if(!(sv>0))return null;
+  return Math.min(4,Math.max(0.25,Math.ceil(planState.people/sv*4-1e-9)/4));
 }
+function planServes(r){var sv=parseInt(r.serves,10);var sc=planScaleFor(r);return (sv>0&&sc)?Math.round(sv*sc*100)/100:null;}
+function planOnList(id){return state.recipes.indexOf(id)>=0;}
+var planMsg='';
 function planStep(v){planState.people=Math.min(20,Math.max(1,planState.people+v));savePlan();render(true);}
 function planToggleDiet(d){
   var i=planState.diets.indexOf(d);
@@ -2017,17 +2022,34 @@ function planIdeas(){
   return pool;
 }
 function planToList(){
-  var n=0;
+  var added=[],already=[],unscaled=0;
   planState.meals.forEach(function(id){
     var r=planRecipe(id);if(!r)return;
-    var a=getAdj(id);a.scale=planScaleFor(r);
-    if(state.recipes.indexOf(id)<0)state.recipes.push(id);
-    n++;
+    // A recipe already on the list is left exactly as it is: no rescale, no changed quantities.
+    if(planOnList(id)){already.push(r.name);return;}
+    var sc=planScaleFor(r);
+    if(sc==null){unscaled++;}
+    else{getAdj(id).scale=sc;}
+    state.recipes.push(id);
+    added.push(r.name);
   });
-  if(!n){toast('Pick a meal first');return;}
-  saveAdj();saveState(state);updateCartBadge();
-  toast(n+' meal'+(n===1?'':'s')+' added to the shopping list');
+  if(!added.length&&!already.length){toast('Pick a meal first');return;}
+  if(added.length){saveAdj();saveState(state);updateCartBadge();}
+  planMsg=(added.length?('Added '+added.length+' meal'+(added.length===1?'':'s')+' to the shopping list. '):'Nothing new to add. ')+
+    (already.length?(already.length+' already on the list, left as is. '):'')+
+    (unscaled?(unscaled+' without a serving size, added at the recipe\'s own amounts. '):'');
+  toast(added.length?'Added to the shopping list':'Already on the list');
   render(true);
+}
+function planBrief(){
+  var names=recipesState.map(function(r){return r.name;}).slice(0,60);
+  var t='Suggest 5 new dinner ideas for '+planState.people+' '+(planState.people===1?'person':'people')+' for the week.\n'+
+    (planState.diets.length?('Every idea must be '+planState.diets.join(', ')+'.\n'):'')+
+    'Keep them practical for a weeknight and grocery-list friendly.\n'+
+    'Do not repeat any of these: '+names.join('; ')+'.\n'+
+    'For each idea give: name, serves, time, ingredients with quantities, and short steps.';
+  if(navigator.clipboard&&navigator.clipboard.writeText){navigator.clipboard.writeText(t).then(function(){toast('Brief copied. Paste it into any AI chat.');},function(){toast('Could not copy');});}
+  else toast('Copy is not available here');
 }
 function planClear(){
   if(!planState.meals.length)return;
@@ -2045,12 +2067,15 @@ function viewPlan(){
   else{
     planState.meals.forEach(function(id){
       var r=planRecipe(id);if(!r)return;
-      var sc=planScaleFor(r),sv=parseInt(r.serves,10);
-      var note=(sv>0)?('Recipe serves '+sv+(sc!==1?' &middot; scaled '+formatScale(sc)+'x for '+planState.people:' &middot; no scaling needed')):'Serving size not set, not scaled';
+      var sc=planScaleFor(r),sv=parseInt(r.serves,10),mk=planServes(r),note;
+      if(planOnList(id)){note='On your shopping list now, left as is';}
+      else if(!sc){note='Serving size not set, added at the recipe\'s own amounts';}
+      else{note='Recipe serves '+sv+' &middot; scaled '+formatScale(sc)+'x, makes '+mk+(mk<planState.people?' (fewer than '+planState.people+', 4x is the most the list scales)':'');}
       h+='<div class="planmeal"><div class="pm-main"><a href="#/recipe/'+escAttr(r.id)+'">'+esc(r.name)+'</a><div class="meta">'+note+'</div></div><button class="pm-x" aria-label="Remove '+escAttr(r.name)+'" onclick="planRemove(\''+escAttr(r.id)+'\')">&times;</button></div>';
     });
     h+='<div style="margin-top:14px"><button class="btn primary" onclick="planToList()">Add to shopping list</button><button class="btn" onclick="planClear()">Clear</button></div>';
-    h+='<p class="meta">Adds each meal with its ingredients scaled for '+planState.people+'. Checked-off items and notes on the list stay as they are.</p>';
+    h+='<p class="meta">Scales up to the next quarter step so there is enough for '+planState.people+'. Meals already on the list are not changed, and nothing is removed.</p>';
+    if(planMsg)h+='<p class="note">'+esc(planMsg)+'</p>';
   }
   var ideas=planIdeas();
   h+='<h3>Ideas</h3>';
@@ -2060,6 +2085,7 @@ function viewPlan(){
       return '<div class="planmeal"><div class="pm-main"><a href="#/recipe/'+escAttr(r.id)+'">'+esc(r.name)+'</a><div class="meta">'+[r.serves?('Serves '+esc(r.serves)):'',esc(r.time||'')].filter(Boolean).join(' &middot; ')+'</div></div><button class="btn pm-add" onclick="planAdd(\''+escAttr(r.id)+'\')">Add</button></div>';}).join('');
     if(ideas.length>5)h+='<button class="btn" onclick="planShuffle()">Show other ideas</button>';
   }
+  h+='<h3>Want something new?</h3><p class="meta">Copy a brief with the headcount, dietary options and the recipes already in the book. Paste it into any AI chat, then add a recipe you like with the add-recipe box. Nothing is sent from here.</p><button class="btn" onclick="planBrief()">Copy brief for new ideas</button>';
   return h;
 }
 updateCartBadge();
