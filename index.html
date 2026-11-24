@@ -1130,6 +1130,19 @@ function copyShopList(){
   });
   copyText(lines.join('\n'),'Shopping list copied - paste it anywhere');
 }
+// Native share sheet with the list as plain text. What the target app does with
+// it is up to that app; the button does not promise per-item transfer anywhere.
+function shareShopList(){
+  var rows=buildShopRows();
+  if(!rows.length){toast('Nothing on the list yet');return;}
+  var lines=rows.map(function(row){
+    var qty=fmtShopQty(row);
+    return row.name+(qty?' - '+qty:'')+(row.desc?(qty?', ':' - ')+row.desc:'')+(row.optional?' (optional)':'');
+  });
+  var text=lines.join('\n');
+  if(navigator.share){navigator.share({text:text}).catch(function(){});}
+  else{copyText(text,'Sharing not available here - list copied instead');}
+}
 
 // ===== Cooking actions =====
 function isStepDone(rid,idx){return !!(cookState[rid]&&cookState[rid][idx]);}
@@ -1483,7 +1496,7 @@ function viewShopping(){
     h+='</div>';
   }
   h+='<div class="card"><div class="customadd"><input id="custom-add" placeholder="Add an item - 2 lb apples, candles..." maxlength="120" onkeydown="if(event.key===\'Enter\')addCustomFromInput()"><button class="btn" onclick="addCustomFromInput()">Add</button></div></div>';
-  h+='<div style="margin-top:16px"><button class="btn primary" onclick="copyShopList()">Copy list</button><button class="btn" onclick="uncheckAll()">Uncheck all ('+totalChecked+'/'+rows.length+')</button><button class="btn" onclick="clearShop()">Clear list</button></div>';
+  h+='<div style="margin-top:16px"><button class="btn primary" onclick="copyShopList()">Copy list</button><button class="btn" onclick="shareShopList()">Share list</button><button class="btn" onclick="uncheckAll()">Uncheck all ('+totalChecked+'/'+rows.length+')</button><button class="btn" onclick="clearShop()">Clear list</button></div>';
   return h;
 }
 
