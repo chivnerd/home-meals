@@ -60,6 +60,8 @@
   .note{background:#EBEDE3;color:#46523A;border-radius:3px;padding:10px 12px;font-size:14.5px;margin-top:16px}
   .note textarea{width:100%;border:none;background:transparent;color:inherit;font:inherit;resize:vertical;min-height:44px}
   .btn{display:inline-block;border-radius:3px;padding:11px 15px;font-family:"Newsreader",Georgia,serif;font-size:12px;font-weight:600;letter-spacing:.12em;text-transform:uppercase;border:1.5px solid #221C14;background:none;color:#221C14;text-decoration:none;margin:8px 8px 0 0;cursor:pointer}
+  .btn[disabled]{opacity:.45;cursor:default}
+  .pskip{padding:4px 10px;margin:0 0 0 8px;font-size:10.5px;vertical-align:middle}
   .btn.primary{background:#221C14;border-color:#221C14;color:#F7F2E9}
   .btn.addopen{display:block;width:100%;padding:12px;font-size:12px;margin-top:14px;text-align:center}
   .btn.inlist{background:#EBEDE3;border-color:#5C6647;color:#46523A}
@@ -2080,21 +2082,39 @@ function shopRowFor(key){
   for(var i=0;i<rows.length;i++)if(rows[i].key===key)return rows[i];
   return null;
 }
+// Standard volume (base ml) and mass (base g) units compare across units;
+// anything else only compares like-for-like.
+var UNIT_DIM={};
+[['tsp','v',4.92892],['teaspoon','v',4.92892],['tbsp','v',14.7868],['tablespoon','v',14.7868],['cup','v',236.588],['ml','v',1],['l','v',1000],['fl oz','v',29.5735],['g','m',1],['gram','m',1],['kg','m',1000],['oz','m',28.3495],['ounce','m',28.3495],['lb','m',453.592],['pound','m',453.592]].forEach(function(u){UNIT_DIM[u[0]]=[u[1],u[2]];});
+function dimOf(u){return UNIT_DIM[unitKey(u)]||null;}
 // How the shopping list covers a needed row:
-// 'covered' (listed amounts meet the need), 'short' (verified missing amounts, per unit),
-// or 'unknown' (amounts missing or in different units - needs a look, never treated as covered).
+// 'covered' (listed amounts meet the need), 'short' (verified missing amount),
+// or 'unknown' (amounts missing or in incompatible units - needs a look, never treated as covered).
 function rowCoverage(need,have){
   if(!need.parts.length)return {status:'unknown'};
   var haveQty=false;
   have.parts.forEach(function(h){if(h.qty!=null)haveQty=true;});
-  var short=[],unknown=false;
+  if(!haveQty)return {status:'unknown'};
+  var groups={},unknown=false;
   need.parts.forEach(function(p){
-    if(p.qty==null||!haveQty){unknown=true;return;}
-    var listed=0,matched=false;
-    have.parts.forEach(function(h){if(h.qty!=null&&unitKey(h.unit)===unitKey(p.unit)){listed+=h.qty;matched=true;}});
-    if(!matched){unknown=true;return;}
-    var s=Math.round((p.qty-listed)*100)/100;
-    if(s>0)short.push({qty:s,unit:p.unit||''});
+    if(p.qty==null){unknown=true;return;}
+    var d=dimOf(p.unit),k=d?('dim:'+d[0]):('u:'+unitKey(p.unit));
+    var g=groups[k]||(groups[k]={dim:d,need:0,have:0,matched:false,unit:p.unit||''});
+    g.need+=d?p.qty*d[1]:p.qty;
+  });
+  have.parts.forEach(function(h){
+    if(h.qty==null)return;
+    var d=dimOf(h.unit),k=d?('dim:'+d[0]):('u:'+unitKey(h.unit));
+    var g=groups[k];if(!g)return; // listed only in a unit that cannot compare
+    g.have+=d?h.qty*d[1]:h.qty;
+    g.matched=true;
+  });
+  var short=[];
+  Object.keys(groups).forEach(function(k){
+    var g=groups[k];
+    if(!g.matched){unknown=true;return;}
+    var s=g.need-g.have;
+    if(s>0.001)short.push({qty:Math.round((g.dim?s/g.dim[1]:s)*100)/100,unit:g.unit});
   });
   if(unknown)return {status:'unknown'};
   return short.length?{status:'short',parts:short}:{status:'covered'};
@@ -2102,9 +2122,18 @@ function rowCoverage(need,have){
 function planShopDefault(row){
   var shopRow=shopRowFor(row.key);
   if(!shopRow)return true; // needed and not on the list
-  // Only a fully covered row starts unticked. A verified shortfall starts ticked and
-  // adds just the missing amount; incomparable amounts start ticked for review.
-  return rowCoverage(row,shopRow).status!=='covered';
+  // A verified shortfall starts ticked and adds just the missing amount.
+  // Covered starts unticked; incomparable starts unticked but unresolved - it needs an explicit choice.
+  return rowCoverage(row,shopRow).status==='short';
+}
+// Already-listed rows whose amounts cannot be compared and have not been resolved yet.
+function planShopUnresolved(){
+  var out=[];
+  planShopRows().rows.forEach(function(row){
+    var sr=shopRowFor(row.key);
+    if(sr&&rowCoverage(row,sr).status==='unknown'&&!(planShopSel&&planShopSel[row.key]!=null))out.push(row.key);
+  });
+  return out;
 }
 function planShopOn(row){return (planShopSel&&planShopSel[row.key]!=null)?planShopSel[row.key]:planShopDefault(row);}
 function planShopCounts(){
@@ -2112,8 +2141,8 @@ function planShopCounts(){
   rows.forEach(function(row){if(planShopOn(row))n++;});
   return {n:n,total:rows.length};
 }
-function planShopGoLabel(){var c=planShopCounts();return 'Add '+c.n+' item'+(c.n===1?'':'s')+' to shopping list';}
-function planShopCountLabel(){var c=planShopCounts();return 'Adding '+c.n+' of '+c.total+' item'+(c.total===1?'':'s')+', scaled for '+planState.people+'.';}
+function planShopGoLabel(){var u=planShopUnresolved().length;if(u)return 'Review '+u+' item'+(u===1?'':'s')+' first';var c=planShopCounts();return 'Add '+c.n+' item'+(c.n===1?'':'s')+' to shopping list';}
+function planShopCountLabel(){var c=planShopCounts(),u=planShopUnresolved().length;return 'Adding '+c.n+' of '+c.total+' item'+(c.total===1?'':'s')+', scaled for '+planState.people+'.'+(u?(' '+u+' flagged item'+(u===1?'':'s')+' still need'+(u===1?'s':'')+' a choice.'):'');}
 function planShopReview(){
   if(!planState.meals.length){toast('Pick a meal first');return;}
   planShopOpen=true;planShopSel={};render(true);
@@ -2122,13 +2151,13 @@ function planShopReview(){
 function planShopBack(){planShopOpen=false;planShopSel=null;render(true);}
 function planShopToggle(key,on){
   if(!planShopSel)planShopSel={};
-  planShopSel[key]=!!on;
-  var btn=document.getElementById('plan-shop-go');if(btn)btn.textContent=planShopGoLabel();
-  var c=document.getElementById('plan-shop-count');if(c)c.textContent=planShopCountLabel();
+  planShopSel[key]=!!on; // any interaction resolves a flagged row: tick adds, untick or Skip skips
+  render(true);
 }
 function planShopConfirm(){
   var data=planShopRows();
   if(!data.rows.length){planShopBack();return;}
+  if(planShopUnresolved().length){toast('Review the flagged items first: tick to add the full amount, or tap Skip');return;}
   var perRecipe={},addedItems=0,topUps=0,skipList=0,skipOff=0;
   data.rows.forEach(function(row){
     var on=planShopOn(row),shopRow=shopRowFor(row.key),handled=false;
@@ -2145,7 +2174,7 @@ function planShopConfirm(){
       }
     }
     if(on)addedItems++;
-    else if(shopRow)skipList++;
+    else if(shopRow&&rowCoverage(row,shopRow).status==='covered')skipList++;
     else skipOff++;
     row.pairs.forEach(function(pr){
       if(!perRecipe[pr[0]])perRecipe[pr[0]]={};
@@ -2260,7 +2289,7 @@ function viewPlan(){
     if(planMsg)h+='<p class="note">'+esc(planMsg)+'</p>';
     if(planShopOpen){
       var shopData=planShopRows();
-      h+='<div id="plan-shop"><h3>Choose groceries</h3><p class="meta">Everything the picked meals need, combined. Untick what you already have. Anything your list already covers is left off; anything it only partly covers adds just the missing amount.</p>';
+      h+='<div id="plan-shop"><h3>Choose groceries</h3><p class="meta">Everything the picked meals need, combined. Untick what you already have. Anything your list already covers is left off; anything it only partly covers adds just the missing amount. If an amount cannot be compared with your list, you choose: add it or skip it.</p>';
       if(shopData.skipped.length){
         h+='<p class="meta">'+shopData.skipped.map(function(r){return esc(r.name);}).join(', ')+(shopData.skipped.length===1?' is':' are')+' already on your list, left as is.</p>';
       }
@@ -2276,17 +2305,22 @@ function viewPlan(){
           var meta=[];
           if(row.sources.length>1)meta.push(esc(row.sources.length+' meals'));
           else if(row.sources.length===1)meta.push(esc(row.sources[0]));
-          var shopRow=shopRowFor(row.key);
+          var shopRow=shopRowFor(row.key),review='';
           if(shopRow){
-            var cov=rowCoverage(row,shopRow),listedQty=fmtShopQty(shopRow);
+            var cov=rowCoverage(row,shopRow),listedQty=fmtShopQty(shopRow),resolved=planShopSel&&planShopSel[row.key]!=null;
             if(cov.status==='short')meta.push('on your list already'+(listedQty?' ('+esc(listedQty)+')':'')+' - adds the missing '+esc(fmtShopQty({parts:cov.parts})));
             else if(cov.status==='covered')meta.push('on your list already'+(listedQty?' ('+esc(listedQty)+')':'')+' - covers this');
-            else meta.push('on your list already'+(listedQty?' ('+esc(listedQty)+')':'')+' - amounts do not compare, adds the full '+(fmtShopQty(row)?esc(fmtShopQty(row)):'amount'));
+            else if(!resolved){
+              meta.push('on your list already'+(listedQty?' ('+esc(listedQty)+')':'')+' - amounts do not compare: tick to add the full '+(qty?esc(qty):'amount')+', or Skip');
+              review='<button class="btn pskip" onclick="planShopToggle(\''+escAttr(row.key)+'\',false)">Skip</button>';
+            }
+            else if(planShopSel[row.key])meta.push('adds the full '+(qty?esc(qty):'amount')+' - could not compare with your list');
+            else meta.push('skipped - could not compare with your list');
           }
           else if(isPantry(normName(row.name)))meta.push('probably on hand');
-          h+='<div class="shopitem"><input type="checkbox" id="'+cid+'"'+(on?' checked':'')+' onchange="planShopToggle(\''+escAttr(row.key)+'\',this.checked)"><label for="'+cid+'">'+label+(meta.length?'<div class="meta">'+meta.join(' &middot; ')+'</div>':'')+'</label></div>';
+          h+='<div class="shopitem"><input type="checkbox" id="'+cid+'"'+(on?' checked':'')+' onchange="planShopToggle(\''+escAttr(row.key)+'\',this.checked)"><label for="'+cid+'">'+label+(meta.length?'<div class="meta">'+meta.join(' &middot; ')+'</div>':'')+'</label>'+review+'</div>';
         });
-        h+='<div style="margin-top:14px"><button class="btn primary" id="plan-shop-go" onclick="planShopConfirm()">'+planShopGoLabel()+'</button><button class="btn" onclick="planShopBack()">Back</button></div>';
+        h+='<div style="margin-top:14px"><button class="btn primary" id="plan-shop-go" onclick="planShopConfirm()"'+(planShopUnresolved().length?' disabled':'')+'>'+planShopGoLabel()+'</button><button class="btn" onclick="planShopBack()">Back</button></div>';
         h+='<p class="meta" id="plan-shop-count">'+planShopCountLabel()+'</p>';
       }
       h+='</div>';
