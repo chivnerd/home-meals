@@ -64,6 +64,8 @@
   .note{background:#EBEDE3;color:#46523A;border-radius:3px;padding:10px 12px;font-size:14.5px;margin-top:16px}
   .note textarea{width:100%;border:none;background:transparent;color:inherit;font:inherit;resize:vertical;min-height:44px}
   .btn{display:inline-block;border-radius:3px;padding:11px 15px;font-family:"Newsreader",Georgia,serif;font-size:12px;font-weight:600;letter-spacing:.12em;text-transform:uppercase;border:1.5px solid #221C14;background:none;color:#221C14;text-decoration:none;margin:8px 8px 0 0;cursor:pointer}
+  .btn[disabled]{opacity:.45;cursor:default}
+  .pskip{padding:4px 10px;margin:0 0 0 8px;font-size:10.5px;vertical-align:middle}
   .btn.primary{background:#221C14;border-color:#221C14;color:#F7F2E9}
   .btn.addopen{display:block;width:100%;padding:12px;font-size:12px;margin-top:14px;text-align:center}
   .btn.inlist{background:#EBEDE3;border-color:#5C6647;color:#46523A}
@@ -1070,16 +1072,18 @@ function buildShopRows(){
     else{row.parts.push({qty:p.qty,unit:p.unit});}
   }
   function addIngPart(r,ing,idx,scale){
-    var a=getAdj(r.id),p;
-    if(a.edits&&a.edits[idx]!=null){p=parseIngText(a.edits[idx]);}
+    var a=getAdj(r.id),p,f=scale;
+    if(a.edits&&a.edits[idx]!=null){p=parseIngText(a.edits[idx]);f=1;}
     else{p={qty:(ing.qty==null?null:Math.round(ing.qty*scale*100)/100),unit:ing.unit||'',name:ing.text};}
     var key=normName(p.name);if(!key)return;
     var row=rowFor(key,p.name.split(',')[0].trim());
     row.fromRecipe=true;
     if(ing.optional)row.optional=true;
     var ci=p.name.indexOf(',');
-    if(!row.desc&&ci>=0)row.desc=p.name.slice(ci+1).trim();
+    if(!row.desc&&ci>=0)row.desc=scaleDesc(p.name.slice(ci+1).trim(),f);
+    var had=row.parts.length>0;
     addPart(row,p);
+    if(had)clearMergedDesc(row);
   }
   state.recipes.forEach(function(rid){
     var r=getRecipe(rid);if(!r)return;
@@ -1106,6 +1110,18 @@ function buildShopRows(){
 function fmtShopQty(row){
   return row.parts.map(function(p){return formatQty(p.qty)+(p.unit?' '+pluralUnit(p.unit,p.qty):'');}).join(' + ');
 }
+// Weight/volume notes after the comma ("about 250g") belong to one recipe's amount.
+// Scale them with the recipe, and drop them once a second contributor merges in -
+// an unscaled or partial note next to a combined quantity reads as the total.
+var QTY_NOTE_ANY=/\d+(?:\.\d+)?\s*(g|kg|ml|l|oz|lb)\b/i;
+var QTY_NOTE_NUM=/(\d+(?:\.\d+)?)(\s*)(g|kg|ml|l|oz|lb)\b/gi;
+function scaleDesc(d,f){
+  if(!d||!f||f===1)return d;
+  return d.replace(QTY_NOTE_NUM,function(m,n,sp,u){return formatQty(Math.round(parseFloat(n)*f*100)/100)+sp+u;});
+}
+// Once a second contributor merges in, a per-recipe weight/volume note no longer
+// describes the row's total: drop the note rather than misstate the purchase amount.
+function clearMergedDesc(row){if(row.desc&&QTY_NOTE_ANY.test(row.desc))row.desc='';}
 
 // ===== Shopping actions =====
 function toggleShop(id){
@@ -2025,24 +2041,188 @@ function planIdeas(){
   }
   return pool;
 }
-function planToList(){
-  var added=[],already=[],unscaled=0;
+// ===== Choose groceries (plan -> shopping list review) =====
+// Picked meals do not dump straight onto the list anymore. Choose groceries opens a
+// review of every ingredient the picked meals need, merged the same way the shopping
+// list merges them, so duplicates across meals show once with combined quantities.
+// Uncheck what is already on hand; only checked items are added. Rows already on the
+// shopping list and pantry staples start unchecked with the reason shown. A meal whose
+// rows are all checked goes on as a whole recipe; a partly checked meal lands as
+// ingredient picks (the same mechanism recipe pages use), so the list stays accurate.
+var planShopOpen=false;
+var planShopSel=null; // row key -> checked override; survives re-renders and rescales while open
+function planShopRows(){
+  var rows={},order=[],skipped=[];
   planState.meals.forEach(function(id){
     var r=planRecipe(id);if(!r)return;
-    // A recipe already on the list is left exactly as it is: no rescale, no changed quantities.
-    if(planOnList(id)){already.push(r.name);return;}
-    var sc=planScaleFor(r);
-    if(sc==null){unscaled++;}
-    else{getAdj(id).scale=sc;}
-    state.recipes.push(id);
-    added.push(r.name);
+    if(planOnList(id)){skipped.push(r);return;} // already on the list: left as is
+    var a=getAdj(id),sc=planScaleFor(r)||1;
+    r.ingredients.forEach(function(ing,idx){
+      var p,f=sc;
+      if(a.edits&&a.edits[idx]!=null){p=parseIngText(a.edits[idx]);f=1;}
+      else{p={qty:(ing.qty==null?null:Math.round(ing.qty*sc*100)/100),unit:ing.unit||'',name:ing.text};}
+      var key=normName(p.name);if(!key)return;
+      if(!rows[key]){rows[key]={key:key,name:p.name.split(',')[0].trim(),parts:[],desc:'',optional:false,sources:[],pairs:[]};order.push(key);}
+      var row=rows[key];
+      if(ing.optional)row.optional=true;
+      var ci=p.name.indexOf(',');
+      if(!row.desc&&ci>=0)row.desc=scaleDesc(p.name.slice(ci+1).trim(),f);
+      var had=row.parts.length>0;
+      if(p.qty!=null){
+        var uk=unitKey(p.unit),found=null;
+        row.parts.forEach(function(pt){if(unitKey(pt.unit)===uk)found=pt;});
+        if(found){found.qty=Math.round((found.qty+p.qty)*100)/100;}
+        else{row.parts.push({qty:p.qty,unit:p.unit});}
+      }
+      if(had)clearMergedDesc(row);
+      if(row.sources.indexOf(r.name)<0)row.sources.push(r.name);
+      row.pairs.push([id,idx]);
+    });
   });
-  if(!added.length&&!already.length){toast('Pick a meal first');return;}
-  if(added.length){saveAdj();saveState(state);updateCartBadge();}
-  planMsg=(added.length?('Added '+added.length+' meal'+(added.length===1?'':'s')+' to the shopping list. '):'Nothing new to add. ')+
-    (already.length?(already.length+' already on the list, left as is. '):'')+
-    (unscaled?(unscaled+' without a serving size, added at the recipe\'s own amounts. '):'');
-  toast(added.length?'Added to the shopping list':'Already on the list');
+  return {rows:order.map(function(k){return rows[k];}),skipped:skipped};
+}
+function shopRowFor(key){
+  var rows=buildShopRows();
+  for(var i=0;i<rows.length;i++)if(rows[i].key===key)return rows[i];
+  return null;
+}
+// Standard volume (base ml) and mass (base g) units compare across units;
+// anything else only compares like-for-like.
+var UNIT_DIM={};
+[['tsp','v',4.92892],['teaspoon','v',4.92892],['tbsp','v',14.7868],['tablespoon','v',14.7868],['cup','v',236.588],['ml','v',1],['l','v',1000],['fl oz','v',29.5735],['g','m',1],['gram','m',1],['kg','m',1000],['oz','m',28.3495],['ounce','m',28.3495],['lb','m',453.592],['pound','m',453.592]].forEach(function(u){UNIT_DIM[u[0]]=[u[1],u[2]];});
+function dimOf(u){return UNIT_DIM[unitKey(u)]||null;}
+// How the shopping list covers a needed row:
+// 'covered' (listed amounts meet the need), 'short' (verified missing amount),
+// or 'unknown' (amounts missing or in incompatible units - needs a look, never treated as covered).
+function rowCoverage(need,have){
+  if(!need.parts.length)return {status:'unknown'};
+  var haveQty=false;
+  have.parts.forEach(function(h){if(h.qty!=null)haveQty=true;});
+  if(!haveQty)return {status:'unknown'};
+  var groups={},unknown=false;
+  need.parts.forEach(function(p){
+    if(p.qty==null){unknown=true;return;}
+    var d=dimOf(p.unit),k=d?('dim:'+d[0]):('u:'+unitKey(p.unit));
+    var g=groups[k]||(groups[k]={dim:d,need:0,have:0,matched:false,unit:p.unit||''});
+    g.need+=d?p.qty*d[1]:p.qty;
+  });
+  have.parts.forEach(function(h){
+    if(h.qty==null)return;
+    var d=dimOf(h.unit),k=d?('dim:'+d[0]):('u:'+unitKey(h.unit));
+    var g=groups[k];if(!g)return; // listed only in a unit that cannot compare
+    g.have+=d?h.qty*d[1]:h.qty;
+    g.matched=true;
+  });
+  var short=[];
+  Object.keys(groups).forEach(function(k){
+    var g=groups[k];
+    if(!g.matched){unknown=true;return;}
+    var s=g.need-g.have;
+    if(s>0.001)short.push({qty:Math.round((g.dim?s/g.dim[1]:s)*100)/100,unit:g.unit});
+  });
+  if(unknown)return {status:'unknown'};
+  return short.length?{status:'short',parts:short}:{status:'covered'};
+}
+function planShopDefault(row){
+  var shopRow=shopRowFor(row.key);
+  if(!shopRow)return true; // needed and not on the list
+  // A verified shortfall starts ticked and adds just the missing amount.
+  // Covered starts unticked; incomparable starts unticked but unresolved - it needs an explicit choice.
+  return rowCoverage(row,shopRow).status==='short';
+}
+// Already-listed rows whose amounts cannot be compared and have not been resolved yet.
+function planShopUnresolved(){
+  var out=[];
+  planShopRows().rows.forEach(function(row){
+    var sr=shopRowFor(row.key);
+    if(sr&&rowCoverage(row,sr).status==='unknown'&&!(planShopSel&&planShopSel[row.key]!=null))out.push(row.key);
+  });
+  return out;
+}
+function planShopOn(row){return (planShopSel&&planShopSel[row.key]!=null)?planShopSel[row.key]:planShopDefault(row);}
+function planShopCounts(){
+  var rows=planShopRows().rows,n=0;
+  rows.forEach(function(row){if(planShopOn(row))n++;});
+  return {n:n,total:rows.length};
+}
+function planShopGoLabel(){var u=planShopUnresolved().length;if(u)return 'Review '+u+' item'+(u===1?'':'s')+' first';var c=planShopCounts();return 'Add '+c.n+' item'+(c.n===1?'':'s')+' to shopping list';}
+function planShopCountLabel(){var c=planShopCounts(),u=planShopUnresolved().length;return 'Adding '+c.n+' of '+c.total+' item'+(c.total===1?'':'s')+', scaled for '+planState.people+'.'+(u?(' '+u+' flagged item'+(u===1?'':'s')+' still need'+(u===1?'s':'')+' a choice.'):'');}
+function planShopReview(){
+  if(!planState.meals.length){toast('Pick a meal first');return;}
+  planShopOpen=true;planShopSel={};render(true);
+  var el=document.getElementById('plan-shop');if(el)el.scrollIntoView();
+}
+function planShopBack(){planShopOpen=false;planShopSel=null;render(true);}
+function planShopToggle(key,on){
+  if(!planShopSel)planShopSel={};
+  planShopSel[key]=!!on; // any interaction resolves a flagged row: tick adds, untick or Skip skips
+  render(true);
+}
+function planShopConfirm(){
+  var data=planShopRows();
+  if(!data.rows.length){planShopBack();return;}
+  if(planShopUnresolved().length){toast('Review the flagged items first: tick to add the full amount, or tap Skip');return;}
+  var perRecipe={},addedItems=0,topUps=0,skipList=0,skipOff=0;
+  data.rows.forEach(function(row){
+    var on=planShopOn(row),shopRow=shopRowFor(row.key),handled=false;
+    if(on&&shopRow){
+      var cov=rowCoverage(row,shopRow);
+      if(cov.status==='short'){
+        // Ticked row the list only partly covers: add just the missing amount as
+        // custom items, which merge into the same shopping-list row. Never doubles
+        // what the list already holds, and the ingredient does not become a pick.
+        handled=true;topUps++;
+        cov.parts.forEach(function(p,i){
+          customState.push({id:'c'+Date.now()+'_'+Math.floor(Math.random()*100000)+'_'+i,name:row.name,qty:p.qty,unit:p.unit||'',done:false});
+        });
+      }
+    }
+    if(on)addedItems++;
+    else if(shopRow&&rowCoverage(row,shopRow).status==='covered')skipList++;
+    else skipOff++;
+    row.pairs.forEach(function(pr){
+      if(!perRecipe[pr[0]])perRecipe[pr[0]]={};
+      perRecipe[pr[0]][pr[1]]=handled?'topup':!!on;
+    });
+  });
+  var addedMeals=0,picksTouched=false;
+  Object.keys(perRecipe).forEach(function(rid){
+    var r=planRecipe(rid);if(!r)return;
+    if(planOnList(rid))return; // landed on the list meanwhile, leave as is
+    var sel=perRecipe[rid];
+    var allOn=r.ingredients.length>0&&r.ingredients.every(function(ing,idx){return sel[idx]===true;});
+    var sc=planScaleFor(r);
+    if(allOn){
+      if(sc!=null)getAdj(rid).scale=sc;
+      state.recipes.push(rid);
+    }else{
+      var any=false;
+      Object.keys(sel).forEach(function(idx){
+        if(sel[idx]===true){if(!pickState[rid])pickState[rid]={};pickState[rid][idx]=true;any=true;}
+      });
+      if(!any)return; // everything from this meal was skipped or topped up
+      if(sc!=null)getAdj(rid).scale=sc;
+      picksTouched=true;
+      if(HH_KEY){pickRids[rid]=true;markDirty('picks');}
+    }
+    addedMeals++;
+  });
+  if(!addedMeals&&!topUps){toast('Nothing selected');return;}
+  if(topUps)saveCustom();
+  if(picksTouched)savePick();
+  saveState(state);updateCartBadge();
+  var msg='';
+  if(addedMeals)msg='Added '+addedItems+' item'+(addedItems===1?'':'s')+' from '+addedMeals+' meal'+(addedMeals===1?'':'s')+' to the shopping list.';
+  else if(topUps)msg='Added the missing amounts to the shopping list.';
+  if(topUps)msg+=(msg?' ':'')+'Topped up '+topUps+' item'+(topUps===1?'':'s')+' already on your list with only the missing amount.';
+  var skipParts=[];
+  if(skipList)skipParts.push(skipList+' already on your list');
+  if(skipOff)skipParts.push(skipOff+' not selected');
+  if(skipParts.length)msg+=(msg?' ':'')+'Skipped '+skipParts.join(', ')+'.';
+  if(data.skipped.length)msg+=(msg?' ':'')+data.skipped.length+' meal'+(data.skipped.length===1?' was':'s were')+' already on the list, left as is.';
+  planMsg=msg;
+  planShopOpen=false;planShopSel=null;
+  toast('Added to shopping list');
   render(true);
 }
 function planBrief(){
@@ -2108,9 +2288,47 @@ function viewPlan(){
       else{note='Recipe serves '+sv+' &middot; scaled '+formatScale(sc)+'x, makes '+mk+(mk<planState.people?' (fewer than '+planState.people+', 4x is the most the list scales)':'');}
       h+='<div class="planmeal"><div class="pm-main"><a href="#/recipe/'+escAttr(r.id)+'">'+esc(r.name)+'</a><div class="meta">'+note+'</div></div><button class="pm-x" aria-label="Remove '+escAttr(r.name)+'" onclick="planRemove(\''+escAttr(r.id)+'\')">&times;</button></div>';
     });
-    h+='<div style="margin-top:14px"><button class="btn primary" onclick="planToList()">Add to shopping list</button><button class="btn" onclick="planClear()">Clear</button></div>';
+    h+='<div style="margin-top:14px"><button class="btn primary" onclick="planShopReview()">Choose groceries</button><button class="btn" onclick="planClear()">Clear</button></div>';
     h+='<p class="meta">Scales up to the next quarter step so there is enough for '+planState.people+'. Meals already on the list are not changed, and nothing is removed.</p>';
     if(planMsg)h+='<p class="note">'+esc(planMsg)+'</p>';
+    if(planShopOpen){
+      var shopData=planShopRows();
+      h+='<div id="plan-shop"><h3>Choose groceries</h3><p class="meta">Everything the picked meals need, combined. Untick what you already have. Anything your list already covers is left off; anything it only partly covers adds just the missing amount. If an amount cannot be compared with your list, you choose: add it or skip it.</p>';
+      if(shopData.skipped.length){
+        h+='<p class="meta">'+shopData.skipped.map(function(r){return esc(r.name);}).join(', ')+(shopData.skipped.length===1?' is':' are')+' already on your list, left as is.</p>';
+      }
+      if(!shopData.rows.length){
+        h+='<p class="meta">Nothing to review. Every picked meal is already on your shopping list.</p>';
+        h+='<div style="margin-top:14px"><button class="btn" onclick="planShopBack()">Back</button></div>';
+      }else{
+        shopData.rows.forEach(function(row){
+          var on=planShopOn(row);
+          var cid='ps-'+row.key.replace(/[^a-z0-9]+/g,'-');
+          var qty=fmtShopQty(row);
+          var label='<b>'+esc(row.name)+'</b>'+(qty?' - '+esc(qty):'')+(row.desc?(qty?', ':' - ')+esc(row.desc):'')+(row.optional?' <span class="opt">(optional)</span>':'');
+          var meta=[];
+          if(row.sources.length>1)meta.push(esc(row.sources.length+' meals'));
+          else if(row.sources.length===1)meta.push(esc(row.sources[0]));
+          var shopRow=shopRowFor(row.key),review='';
+          if(shopRow){
+            var cov=rowCoverage(row,shopRow),listedQty=fmtShopQty(shopRow),resolved=planShopSel&&planShopSel[row.key]!=null;
+            if(cov.status==='short')meta.push('on your list already'+(listedQty?' ('+esc(listedQty)+')':'')+' - adds the missing '+esc(fmtShopQty({parts:cov.parts})));
+            else if(cov.status==='covered')meta.push('on your list already'+(listedQty?' ('+esc(listedQty)+')':'')+' - covers this');
+            else if(!resolved){
+              meta.push('on your list already'+(listedQty?' ('+esc(listedQty)+')':'')+' - amounts do not compare: tick to add the full '+(qty?esc(qty):'amount')+', or Skip');
+              review='<button class="btn pskip" onclick="planShopToggle(\''+escAttr(row.key)+'\',false)">Skip</button>';
+            }
+            else if(planShopSel[row.key])meta.push('adds the full '+(qty?esc(qty):'amount')+' - could not compare with your list');
+            else meta.push('skipped - could not compare with your list');
+          }
+          else if(isPantry(normName(row.name)))meta.push('probably on hand');
+          h+='<div class="shopitem"><input type="checkbox" id="'+cid+'"'+(on?' checked':'')+' onchange="planShopToggle(\''+escAttr(row.key)+'\',this.checked)"><label for="'+cid+'">'+label+(meta.length?'<div class="meta">'+meta.join(' &middot; ')+'</div>':'')+'</label>'+review+'</div>';
+        });
+        h+='<div style="margin-top:14px"><button class="btn primary" id="plan-shop-go" onclick="planShopConfirm()"'+(planShopUnresolved().length?' disabled':'')+'>'+planShopGoLabel()+'</button><button class="btn" onclick="planShopBack()">Back</button></div>';
+        h+='<p class="meta" id="plan-shop-count">'+planShopCountLabel()+'</p>';
+      }
+      h+='</div>';
+    }
   }
   var ideas=planIdeas();
   h+='<h3>Ideas</h3>';
