@@ -1107,13 +1107,15 @@ function fmtShopQty(row){
 // Weight/volume notes after the comma ("about 250g") belong to one recipe's amount.
 // Scale them with the recipe, and drop them once a second contributor merges in -
 // an unscaled or partial note next to a combined quantity reads as the total.
-var QTY_NOTE_FULL=/^\s*(about|approx\.?|~)?\s*\d+(?:\.\d+)?\s*(g|kg|ml|l|oz|lb)\s*\.?\s*$/i;
+var QTY_NOTE_ANY=/\d+(?:\.\d+)?\s*(g|kg|ml|l|oz|lb)\b/i;
 var QTY_NOTE_NUM=/(\d+(?:\.\d+)?)(\s*)(g|kg|ml|l|oz|lb)\b/gi;
 function scaleDesc(d,f){
   if(!d||!f||f===1)return d;
   return d.replace(QTY_NOTE_NUM,function(m,n,sp,u){return formatQty(Math.round(parseFloat(n)*f*100)/100)+sp+u;});
 }
-function clearMergedDesc(row){if(row.desc&&QTY_NOTE_FULL.test(row.desc))row.desc='';}
+// Once a second contributor merges in, a per-recipe weight/volume note no longer
+// describes the row's total: drop the note rather than misstate the purchase amount.
+function clearMergedDesc(row){if(row.desc&&QTY_NOTE_ANY.test(row.desc))row.desc='';}
 
 // ===== Shopping actions =====
 function toggleShop(id){
@@ -2078,22 +2080,31 @@ function shopRowFor(key){
   for(var i=0;i<rows.length;i++)if(rows[i].key===key)return rows[i];
   return null;
 }
-// How much of a needed row the shopping list does not already cover, per unit.
-function rowShortfall(need,have){
-  var out=[];
+// How the shopping list covers a needed row:
+// 'covered' (listed amounts meet the need), 'short' (verified missing amounts, per unit),
+// or 'unknown' (amounts missing or in different units - needs a look, never treated as covered).
+function rowCoverage(need,have){
+  if(!need.parts.length)return {status:'unknown'};
+  var haveQty=false;
+  have.parts.forEach(function(h){if(h.qty!=null)haveQty=true;});
+  var short=[],unknown=false;
   need.parts.forEach(function(p){
-    if(p.qty==null)return;
-    var listed=0;
-    have.parts.forEach(function(h){if(unitKey(h.unit)===unitKey(p.unit))listed+=h.qty;});
-    var short=Math.round((p.qty-listed)*100)/100;
-    if(short>0)out.push({qty:short,unit:p.unit||''});
+    if(p.qty==null||!haveQty){unknown=true;return;}
+    var listed=0,matched=false;
+    have.parts.forEach(function(h){if(h.qty!=null&&unitKey(h.unit)===unitKey(p.unit)){listed+=h.qty;matched=true;}});
+    if(!matched){unknown=true;return;}
+    var s=Math.round((p.qty-listed)*100)/100;
+    if(s>0)short.push({qty:s,unit:p.unit||''});
   });
-  return out.length?out:null;
+  if(unknown)return {status:'unknown'};
+  return short.length?{status:'short',parts:short}:{status:'covered'};
 }
 function planShopDefault(row){
-  if(shopRowFor(row.key))return false; // already on the shopping list
-  if(isPantry(normName(row.name)))return false; // staple most kitchens have
-  return true;
+  var shopRow=shopRowFor(row.key);
+  if(!shopRow)return true; // needed and not on the list
+  // Only a fully covered row starts unticked. A verified shortfall starts ticked and
+  // adds just the missing amount; incomparable amounts start ticked for review.
+  return rowCoverage(row,shopRow).status!=='covered';
 }
 function planShopOn(row){return (planShopSel&&planShopSel[row.key]!=null)?planShopSel[row.key]:planShopDefault(row);}
 function planShopCounts(){
@@ -2118,25 +2129,23 @@ function planShopToggle(key,on){
 function planShopConfirm(){
   var data=planShopRows();
   if(!data.rows.length){planShopBack();return;}
-  var perRecipe={},addedItems=0,topUps=0,skipList=0,skipPantry=0,skipOff=0;
+  var perRecipe={},addedItems=0,topUps=0,skipList=0,skipOff=0;
   data.rows.forEach(function(row){
     var on=planShopOn(row),shopRow=shopRowFor(row.key),handled=false;
     if(on&&shopRow){
-      var sf=rowShortfall(row,shopRow);
-      if(sf){
-        // Ticked an already-listed row that falls short: add only the missing
-        // amount as custom items, which merge into the same shopping-list row.
-        // Never doubles what the list already holds, and the ingredient does not
-        // become a recipe pick below.
+      var cov=rowCoverage(row,shopRow);
+      if(cov.status==='short'){
+        // Ticked row the list only partly covers: add just the missing amount as
+        // custom items, which merge into the same shopping-list row. Never doubles
+        // what the list already holds, and the ingredient does not become a pick.
         handled=true;topUps++;
-        sf.forEach(function(p,i){
+        cov.parts.forEach(function(p,i){
           customState.push({id:'c'+Date.now()+'_'+Math.floor(Math.random()*100000)+'_'+i,name:row.name,qty:p.qty,unit:p.unit||'',done:false});
         });
       }
     }
     if(on)addedItems++;
     else if(shopRow)skipList++;
-    else if(isPantry(normName(row.name)))skipPantry++;
     else skipOff++;
     row.pairs.forEach(function(pr){
       if(!perRecipe[pr[0]])perRecipe[pr[0]]={};
@@ -2175,7 +2184,6 @@ function planShopConfirm(){
   if(topUps)msg+=(msg?' ':'')+'Topped up '+topUps+' item'+(topUps===1?'':'s')+' already on your list with only the missing amount.';
   var skipParts=[];
   if(skipList)skipParts.push(skipList+' already on your list');
-  if(skipPantry)skipParts.push(skipPantry+' probably on hand');
   if(skipOff)skipParts.push(skipOff+' not selected');
   if(skipParts.length)msg+=(msg?' ':'')+'Skipped '+skipParts.join(', ')+'.';
   if(data.skipped.length)msg+=(msg?' ':'')+data.skipped.length+' meal'+(data.skipped.length===1?' was':'s were')+' already on the list, left as is.';
@@ -2252,7 +2260,7 @@ function viewPlan(){
     if(planMsg)h+='<p class="note">'+esc(planMsg)+'</p>';
     if(planShopOpen){
       var shopData=planShopRows();
-      h+='<div id="plan-shop"><h3>Choose groceries</h3><p class="meta">Everything the picked meals need, combined. Untick what you already have. Anything already on your shopping list stays untouched there - tick it only to top up the missing amount.</p>';
+      h+='<div id="plan-shop"><h3>Choose groceries</h3><p class="meta">Everything the picked meals need, combined. Untick what you already have. Anything your list already covers is left off; anything it only partly covers adds just the missing amount.</p>';
       if(shopData.skipped.length){
         h+='<p class="meta">'+shopData.skipped.map(function(r){return esc(r.name);}).join(', ')+(shopData.skipped.length===1?' is':' are')+' already on your list, left as is.</p>';
       }
@@ -2270,9 +2278,10 @@ function viewPlan(){
           else if(row.sources.length===1)meta.push(esc(row.sources[0]));
           var shopRow=shopRowFor(row.key);
           if(shopRow){
-            var listedQty=fmtShopQty(shopRow),short=rowShortfall(row,shopRow);
-            meta.push('on your list already'+(listedQty?' ('+esc(listedQty)+')':''));
-            if(short)meta.push('short '+esc(fmtShopQty({parts:short}))+' - tick to add the missing amount');
+            var cov=rowCoverage(row,shopRow),listedQty=fmtShopQty(shopRow);
+            if(cov.status==='short')meta.push('on your list already'+(listedQty?' ('+esc(listedQty)+')':'')+' - adds the missing '+esc(fmtShopQty({parts:cov.parts})));
+            else if(cov.status==='covered')meta.push('on your list already'+(listedQty?' ('+esc(listedQty)+')':'')+' - covers this');
+            else meta.push('on your list already'+(listedQty?' ('+esc(listedQty)+')':'')+' - amounts do not compare, adds the full '+(fmtShopQty(row)?esc(fmtShopQty(row)):'amount'));
           }
           else if(isPantry(normName(row.name)))meta.push('probably on hand');
           h+='<div class="shopitem"><input type="checkbox" id="'+cid+'"'+(on?' checked':'')+' onchange="planShopToggle(\''+escAttr(row.key)+'\',this.checked)"><label for="'+cid+'">'+label+(meta.length?'<div class="meta">'+meta.join(' &middot; ')+'</div>':'')+'</label></div>';
