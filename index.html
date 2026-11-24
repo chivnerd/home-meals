@@ -1126,21 +1126,9 @@ function copyShopList(){
   if(!rows.length){toast('Nothing on the list yet');return;}
   var lines=rows.map(function(row){
     var qty=fmtShopQty(row);
-    return '- '+row.name+(qty?' - '+qty:'')+(row.desc?(qty?', ':' - ')+row.desc:'')+(row.optional?' (optional)':'');
-  });
-  copyText(lines.join('\n'),'Shopping list copied - paste it anywhere');
-}
-// Plain one-item-per-line text: the shape Reminders' Batch Add shortcut and the
-// Notes-checklist paste route both turn into separate reminders. A direct paste
-// into Reminders blobs multiline text into one reminder, so the toast says so.
-function copyShopListReminders(){
-  var rows=buildShopRows();
-  if(!rows.length){toast('Nothing on the list yet');return;}
-  var lines=rows.map(function(row){
-    var qty=fmtShopQty(row);
     return row.name+(qty?' - '+qty:'')+(row.desc?(qty?', ':' - ')+row.desc:'')+(row.optional?' (optional)':'');
   });
-  copyText(lines.join('\n'),'Copied, one item per line. In Reminders use Batch Add, or paste into a Notes checklist first');
+  copyText(lines.join('\n'),'Shopping list copied - paste it anywhere');
 }
 
 // ===== Cooking actions =====
@@ -1495,7 +1483,7 @@ function viewShopping(){
     h+='</div>';
   }
   h+='<div class="card"><div class="customadd"><input id="custom-add" placeholder="Add an item - 2 lb apples, candles..." maxlength="120" onkeydown="if(event.key===\'Enter\')addCustomFromInput()"><button class="btn" onclick="addCustomFromInput()">Add</button></div></div>';
-  h+='<div style="margin-top:16px"><button class="btn primary" onclick="copyShopList()">Copy list</button><button class="btn" onclick="copyShopListReminders()">Copy for Reminders</button><button class="btn" onclick="uncheckAll()">Uncheck all ('+totalChecked+'/'+rows.length+')</button><button class="btn" onclick="clearShop()">Clear list</button></div>';
+  h+='<div style="margin-top:16px"><button class="btn primary" onclick="copyShopList()">Copy list</button><button class="btn" onclick="uncheckAll()">Uncheck all ('+totalChecked+'/'+rows.length+')</button><button class="btn" onclick="clearShop()">Clear list</button></div>';
   return h;
 }
 
