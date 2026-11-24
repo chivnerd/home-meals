@@ -2049,7 +2049,6 @@ function planBrief(){
   if(planState.diets.length){
     var gloss=[];
     if(planState.diets.indexOf('nightshade-free')>=0)gloss.push('nightshade-free means no tomato, potato, peppers, paprika or chili');
-    if(planState.diets.indexOf('dairy-free')>=0)gloss.push('dairy-free here means no milk or cream, butter is fine');
     lines.push('Non-negotiables: every idea must be '+planState.diets.join(', ')+(gloss.length?(' ('+gloss.join('; ')+')'):'')+'.');
   }
   lines.push('Style: practical weeknight cooking, grocery-list friendly, high protein where it fits.');
