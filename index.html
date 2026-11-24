@@ -2103,7 +2103,7 @@ function viewPlan(){
       return '<div class="planmeal"><div class="pm-main"><a href="#/recipe/'+escAttr(r.id)+'">'+esc(r.name)+'</a><div class="meta">'+[r.serves?('Serves '+esc(r.serves)):'',esc(r.time||'')].filter(Boolean).join(' &middot; ')+'</div></div><button class="btn pm-add" onclick="planAdd(\''+escAttr(r.id)+'\')">Add</button></div>';}).join('');
     if(ideas.length>5)h+='<button class="btn" onclick="planShuffle()">Show other ideas</button>';
   }
-  h+='<h3>Want something new?</h3><p class="meta">Copy a brief with the headcount, dietary options, this week's picks and the recipes already in the book. Paste it into any AI chat, then add a recipe you like with the add-recipe box. Nothing is sent from here.</p><button class="btn" onclick="planBrief()">Copy brief for new ideas</button>';
+  h+='<h3>Want something new?</h3><p class="meta">Copy a brief with the headcount, dietary options, this week\'s picks and the recipes already in the book. Paste it into any AI chat, then add a recipe you like with the add-recipe box. Nothing is sent from here.</p><button class="btn" onclick="planBrief()">Copy brief for new ideas</button>';
   return h;
 }
 updateCartBadge();
