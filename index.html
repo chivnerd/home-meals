@@ -1066,16 +1066,18 @@ function buildShopRows(){
     else{row.parts.push({qty:p.qty,unit:p.unit});}
   }
   function addIngPart(r,ing,idx,scale){
-    var a=getAdj(r.id),p;
-    if(a.edits&&a.edits[idx]!=null){p=parseIngText(a.edits[idx]);}
+    var a=getAdj(r.id),p,f=scale;
+    if(a.edits&&a.edits[idx]!=null){p=parseIngText(a.edits[idx]);f=1;}
     else{p={qty:(ing.qty==null?null:Math.round(ing.qty*scale*100)/100),unit:ing.unit||'',name:ing.text};}
     var key=normName(p.name);if(!key)return;
     var row=rowFor(key,p.name.split(',')[0].trim());
     row.fromRecipe=true;
     if(ing.optional)row.optional=true;
     var ci=p.name.indexOf(',');
-    if(!row.desc&&ci>=0)row.desc=p.name.slice(ci+1).trim();
+    if(!row.desc&&ci>=0)row.desc=scaleDesc(p.name.slice(ci+1).trim(),f);
+    var had=row.parts.length>0;
     addPart(row,p);
+    if(had)clearMergedDesc(row);
   }
   state.recipes.forEach(function(rid){
     var r=getRecipe(rid);if(!r)return;
@@ -1102,6 +1104,16 @@ function buildShopRows(){
 function fmtShopQty(row){
   return row.parts.map(function(p){return formatQty(p.qty)+(p.unit?' '+pluralUnit(p.unit,p.qty):'');}).join(' + ');
 }
+// Weight/volume notes after the comma ("about 250g") belong to one recipe's amount.
+// Scale them with the recipe, and drop them once a second contributor merges in -
+// an unscaled or partial note next to a combined quantity reads as the total.
+var QTY_NOTE_FULL=/^\s*(about|approx\.?|~)?\s*\d+(?:\.\d+)?\s*(g|kg|ml|l|oz|lb)\s*\.?\s*$/i;
+var QTY_NOTE_NUM=/(\d+(?:\.\d+)?)(\s*)(g|kg|ml|l|oz|lb)\b/gi;
+function scaleDesc(d,f){
+  if(!d||!f||f===1)return d;
+  return d.replace(QTY_NOTE_NUM,function(m,n,sp,u){return formatQty(Math.round(parseFloat(n)*f*100)/100)+sp+u;});
+}
+function clearMergedDesc(row){if(row.desc&&QTY_NOTE_FULL.test(row.desc))row.desc='';}
 
 // ===== Shopping actions =====
 function toggleShop(id){
@@ -2038,34 +2050,48 @@ function planShopRows(){
     if(planOnList(id)){skipped.push(r);return;} // already on the list: left as is
     var a=getAdj(id),sc=planScaleFor(r)||1;
     r.ingredients.forEach(function(ing,idx){
-      var p;
-      if(a.edits&&a.edits[idx]!=null){p=parseIngText(a.edits[idx]);}
+      var p,f=sc;
+      if(a.edits&&a.edits[idx]!=null){p=parseIngText(a.edits[idx]);f=1;}
       else{p={qty:(ing.qty==null?null:Math.round(ing.qty*sc*100)/100),unit:ing.unit||'',name:ing.text};}
       var key=normName(p.name);if(!key)return;
       if(!rows[key]){rows[key]={key:key,name:p.name.split(',')[0].trim(),parts:[],desc:'',optional:false,sources:[],pairs:[]};order.push(key);}
       var row=rows[key];
       if(ing.optional)row.optional=true;
       var ci=p.name.indexOf(',');
-      if(!row.desc&&ci>=0)row.desc=p.name.slice(ci+1).trim();
+      if(!row.desc&&ci>=0)row.desc=scaleDesc(p.name.slice(ci+1).trim(),f);
+      var had=row.parts.length>0;
       if(p.qty!=null){
         var uk=unitKey(p.unit),found=null;
         row.parts.forEach(function(pt){if(unitKey(pt.unit)===uk)found=pt;});
         if(found){found.qty=Math.round((found.qty+p.qty)*100)/100;}
         else{row.parts.push({qty:p.qty,unit:p.unit});}
       }
+      if(had)clearMergedDesc(row);
       if(row.sources.indexOf(r.name)<0)row.sources.push(r.name);
       row.pairs.push([id,idx]);
     });
   });
   return {rows:order.map(function(k){return rows[k];}),skipped:skipped};
 }
-function shopHasRow(key){
+function shopRowFor(key){
   var rows=buildShopRows();
-  for(var i=0;i<rows.length;i++)if(rows[i].key===key)return true;
-  return false;
+  for(var i=0;i<rows.length;i++)if(rows[i].key===key)return rows[i];
+  return null;
+}
+// How much of a needed row the shopping list does not already cover, per unit.
+function rowShortfall(need,have){
+  var out=[];
+  need.parts.forEach(function(p){
+    if(p.qty==null)return;
+    var listed=0;
+    have.parts.forEach(function(h){if(unitKey(h.unit)===unitKey(p.unit))listed+=h.qty;});
+    var short=Math.round((p.qty-listed)*100)/100;
+    if(short>0)out.push({qty:short,unit:p.unit||''});
+  });
+  return out.length?out:null;
 }
 function planShopDefault(row){
-  if(shopHasRow(row.key))return false; // already on the shopping list
+  if(shopRowFor(row.key))return false; // already on the shopping list
   if(isPantry(normName(row.name)))return false; // staple most kitchens have
   return true;
 }
@@ -2092,13 +2118,29 @@ function planShopToggle(key,on){
 function planShopConfirm(){
   var data=planShopRows();
   if(!data.rows.length){planShopBack();return;}
-  var perRecipe={},addedItems=0,skippedItems=0;
+  var perRecipe={},addedItems=0,topUps=0,skipList=0,skipPantry=0,skipOff=0;
   data.rows.forEach(function(row){
-    var on=planShopOn(row);
-    if(on)addedItems++;else skippedItems++;
+    var on=planShopOn(row),shopRow=shopRowFor(row.key),handled=false;
+    if(on&&shopRow){
+      var sf=rowShortfall(row,shopRow);
+      if(sf){
+        // Ticked an already-listed row that falls short: add only the missing
+        // amount as custom items, which merge into the same shopping-list row.
+        // Never doubles what the list already holds, and the ingredient does not
+        // become a recipe pick below.
+        handled=true;topUps++;
+        sf.forEach(function(p,i){
+          customState.push({id:'c'+Date.now()+'_'+Math.floor(Math.random()*100000)+'_'+i,name:row.name,qty:p.qty,unit:p.unit||'',done:false});
+        });
+      }
+    }
+    if(on)addedItems++;
+    else if(shopRow)skipList++;
+    else if(isPantry(normName(row.name)))skipPantry++;
+    else skipOff++;
     row.pairs.forEach(function(pr){
       if(!perRecipe[pr[0]])perRecipe[pr[0]]={};
-      perRecipe[pr[0]][pr[1]]=on;
+      perRecipe[pr[0]][pr[1]]=handled?'topup':!!on;
     });
   });
   var addedMeals=0,picksTouched=false;
@@ -2116,19 +2158,28 @@ function planShopConfirm(){
       Object.keys(sel).forEach(function(idx){
         if(sel[idx]===true){if(!pickState[rid])pickState[rid]={};pickState[rid][idx]=true;any=true;}
       });
-      if(!any)return; // everything from this meal was skipped
+      if(!any)return; // everything from this meal was skipped or topped up
       if(sc!=null)getAdj(rid).scale=sc;
       picksTouched=true;
       if(HH_KEY){pickRids[rid]=true;markDirty('picks');}
     }
     addedMeals++;
   });
-  if(!addedMeals){toast('Nothing selected');return;}
+  if(!addedMeals&&!topUps){toast('Nothing selected');return;}
+  if(topUps)saveCustom();
   if(picksTouched)savePick();
   saveState(state);updateCartBadge();
-  planMsg='Added '+addedItems+' item'+(addedItems===1?'':'s')+' from '+addedMeals+' meal'+(addedMeals===1?'':'s')+' to the shopping list.'+
-    (skippedItems?(' Skipped '+skippedItems+' already on hand.'):'')+
-    (data.skipped.length?(' '+data.skipped.length+' meal'+(data.skipped.length===1?' was':'s were')+' already on the list, left as is.'):'');
+  var msg='';
+  if(addedMeals)msg='Added '+addedItems+' item'+(addedItems===1?'':'s')+' from '+addedMeals+' meal'+(addedMeals===1?'':'s')+' to the shopping list.';
+  else if(topUps)msg='Added the missing amounts to the shopping list.';
+  if(topUps)msg+=(msg?' ':'')+'Topped up '+topUps+' item'+(topUps===1?'':'s')+' already on your list with only the missing amount.';
+  var skipParts=[];
+  if(skipList)skipParts.push(skipList+' already on your list');
+  if(skipPantry)skipParts.push(skipPantry+' probably on hand');
+  if(skipOff)skipParts.push(skipOff+' not selected');
+  if(skipParts.length)msg+=(msg?' ':'')+'Skipped '+skipParts.join(', ')+'.';
+  if(data.skipped.length)msg+=(msg?' ':'')+data.skipped.length+' meal'+(data.skipped.length===1?' was':'s were')+' already on the list, left as is.';
+  planMsg=msg;
   planShopOpen=false;planShopSel=null;
   toast('Added to shopping list');
   render(true);
@@ -2201,7 +2252,7 @@ function viewPlan(){
     if(planMsg)h+='<p class="note">'+esc(planMsg)+'</p>';
     if(planShopOpen){
       var shopData=planShopRows();
-      h+='<div id="plan-shop"><h3>Choose groceries</h3><p class="meta">Everything the picked meals need, combined. Uncheck what you already have; only checked items go to your shopping list.</p>';
+      h+='<div id="plan-shop"><h3>Choose groceries</h3><p class="meta">Everything the picked meals need, combined. Untick what you already have. Anything already on your shopping list stays untouched there - tick it only to top up the missing amount.</p>';
       if(shopData.skipped.length){
         h+='<p class="meta">'+shopData.skipped.map(function(r){return esc(r.name);}).join(', ')+(shopData.skipped.length===1?' is':' are')+' already on your list, left as is.</p>';
       }
@@ -2217,7 +2268,12 @@ function viewPlan(){
           var meta=[];
           if(row.sources.length>1)meta.push(esc(row.sources.length+' meals'));
           else if(row.sources.length===1)meta.push(esc(row.sources[0]));
-          if(shopHasRow(row.key))meta.push('on your list already');
+          var shopRow=shopRowFor(row.key);
+          if(shopRow){
+            var listedQty=fmtShopQty(shopRow),short=rowShortfall(row,shopRow);
+            meta.push('on your list already'+(listedQty?' ('+esc(listedQty)+')':''));
+            if(short)meta.push('short '+esc(fmtShopQty({parts:short}))+' - tick to add the missing amount');
+          }
           else if(isPantry(normName(row.name)))meta.push('probably on hand');
           h+='<div class="shopitem"><input type="checkbox" id="'+cid+'"'+(on?' checked':'')+' onchange="planShopToggle(\''+escAttr(row.key)+'\',this.checked)"><label for="'+cid+'">'+label+(meta.length?'<div class="meta">'+meta.join(' &middot; ')+'</div>':'')+'</label></div>';
         });
